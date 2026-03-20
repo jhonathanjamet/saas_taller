@@ -1,4 +1,4 @@
-import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RequestContextService } from '../../common/request-context/request-context.service';
 import { Prisma, WorkOrderPriority, WorkOrderTaskStatus } from '@prisma/client';
@@ -7,6 +7,8 @@ import { UpdateWorkOrderDto } from './dto/update-work-order.dto';
 
 @Injectable()
 export class WorkOrdersService {
+  private readonly logger = new Logger(WorkOrdersService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly context: RequestContextService,
@@ -136,8 +138,16 @@ export class WorkOrdersService {
         orderBy: { createdAt: 'desc' },
       });
     } catch (error) {
-      if (!this.isUuidDataError(error)) throw error;
-      return this.listViaSql(tenantId, false);
+      this.logger.error('list() falló con Prisma ORM', error instanceof Error ? error.stack : String(error));
+      try {
+        return await this.listViaSql(tenantId, false);
+      } catch (fallbackError) {
+        this.logger.error(
+          'list() falló también con SQL fallback',
+          fallbackError instanceof Error ? fallbackError.stack : String(fallbackError),
+        );
+        return [];
+      }
     }
   }
 
@@ -165,8 +175,19 @@ export class WorkOrdersService {
         orderBy: { deliveredAt: 'desc' },
       });
     } catch (error) {
-      if (!this.isUuidDataError(error)) throw error;
-      return this.listViaSql(tenantId, true);
+      this.logger.error(
+        'history() falló con Prisma ORM',
+        error instanceof Error ? error.stack : String(error),
+      );
+      try {
+        return await this.listViaSql(tenantId, true);
+      } catch (fallbackError) {
+        this.logger.error(
+          'history() falló también con SQL fallback',
+          fallbackError instanceof Error ? fallbackError.stack : String(fallbackError),
+        );
+        return [];
+      }
     }
   }
 
