@@ -336,6 +336,7 @@ export default function OrdenDetallePage() {
   const [additionalDescription, setAdditionalDescription] = useState('');
   const [additionalNetAmount, setAdditionalNetAmount] = useState(0);
   const [additionalIvaPercent, setAdditionalIvaPercent] = useState(0);
+  const [additionalError, setAdditionalError] = useState<string | null>(null);
   const [editingItemDraft, setEditingItemDraft] = useState<{
     quantity: number;
     unitPrice: number;
@@ -979,7 +980,7 @@ export default function OrdenDetallePage() {
   };
 
   return (
-    <main className="flex min-h-screen bg-cream text-ink">
+    <main className="flex min-h-screen overflow-x-hidden bg-cream text-ink">
       <style jsx global>{`
         .print-only {
           display: none;
@@ -1126,43 +1127,43 @@ export default function OrdenDetallePage() {
       </section>
       <div className="screen-only contents">
       <Sidebar />
-      <div className="flex-1 px-8 py-10">
-        <div className="flex items-start justify-between">
+      <div className="flex-1 px-2.5 pb-5 pt-14 sm:px-5 sm:pb-6 sm:pt-16 lg:px-8 lg:py-10">
+        <div className="flex flex-col gap-3 lg:flex-row lg:items-start lg:justify-between">
           <div>
-            <h1 className="text-2xl font-semibold">Orden de trabajo</h1>
-            <div className="mt-1 text-sm text-gray-500">
+            <h1 className="text-xl font-semibold sm:text-2xl">Orden de trabajo</h1>
+            <div className="mt-1 text-xs text-gray-500 sm:text-sm">
               Principal <span className="mx-2">›</span> Taller <span className="mx-2">›</span> Órdenes
               <span className="mx-2">›</span>
               <span className="text-brand">Orden Nº {formatOrderNumber(order?.orderNumber)}</span>
             </div>
           </div>
-          <div className="flex items-center gap-2 text-sm">
+          <div className="flex flex-wrap items-center gap-1.5 text-sm sm:gap-2">
             <button
-              className="rounded-full border border-gray-200 px-3 py-2 hover:bg-white"
+              className="rounded-full border border-gray-200 px-2.5 py-1.5 hover:bg-white sm:px-3 sm:py-2"
               onClick={() => router.back()}
             >
               ←
             </button>
             <button
-              className="rounded-full border border-gray-200 px-3 py-2 hover:bg-white"
+              className="rounded-full border border-gray-200 px-2.5 py-1.5 hover:bg-white sm:px-3 sm:py-2"
               onClick={() => window.print()}
             >
               🖨
             </button>
             <button
-              className="rounded-full border border-gray-200 px-3 py-2 hover:bg-white"
+              className="rounded-full border border-gray-200 px-2.5 py-1.5 hover:bg-white sm:px-3 sm:py-2"
               onClick={openPublicOrderLink}
             >
               🔗
             </button>
             <button
-              className="rounded-full border border-gray-200 px-4 py-2 hover:bg-white"
+              className="rounded-full border border-gray-200 px-3 py-1.5 hover:bg-white sm:px-4 sm:py-2"
               onClick={openHistory}
             >
               Historial
             </button>
             <button
-              className="rounded-full border border-gray-200 px-4 py-2 hover:bg-white"
+              className="rounded-full border border-gray-200 px-3 py-1.5 hover:bg-white sm:px-4 sm:py-2"
               onClick={openMove}
             >
               Mover
@@ -1170,23 +1171,23 @@ export default function OrdenDetallePage() {
           </div>
         </div>
 
-        <div className="mt-6 grid gap-4 lg:grid-cols-2">
-          <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-            <div className="flex items-start gap-4">
-              <div className="h-16 w-16 rounded-xl border border-dashed border-gray-200 bg-sand/40 flex items-center justify-center text-gray-400">
+        <div className="mt-4 grid gap-3 sm:mt-6 sm:gap-4 lg:grid-cols-2">
+          <div className="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm sm:p-4">
+            <div className="flex items-start gap-3 sm:gap-4">
+              <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-dashed border-gray-200 bg-sand/40 text-gray-400 sm:h-16 sm:w-16">
                 👤
               </div>
               <div className="flex-1">
                 <div className="inline-flex items-center rounded-full bg-sand px-3 py-1 text-xs text-gray-600">
                   {customer?.taxId || 'Persona'}
                 </div>
-                <div className="mt-2 text-lg font-semibold">{customerName}</div>
-                <div className="mt-1 text-sm text-gray-500">
+                <div className="mt-1.5 text-base font-semibold sm:mt-2 sm:text-lg">{customerName}</div>
+                <div className="mt-1 text-xs text-gray-500 sm:text-sm">
                   {customer?.email || 'No cargado'}
                 </div>
-                <div className="mt-1 text-sm text-gray-500">{customer?.phone || '—'}</div>
+                <div className="mt-1 text-xs text-gray-500 sm:text-sm">{customer?.phone || '—'}</div>
               </div>
-              <div className="flex items-center gap-2 text-sm text-gray-500">
+              <div className="flex items-center gap-1.5 text-xs text-gray-500 sm:gap-2 sm:text-sm">
                 <button className="rounded-full border border-gray-200 px-2 py-1">👁</button>
                 <button className="rounded-full border border-gray-200 px-2 py-1">✎</button>
                 <button className="rounded-full border border-gray-200 px-2 py-1">⋮</button>
@@ -1194,22 +1195,22 @@ export default function OrdenDetallePage() {
             </div>
           </div>
 
-          <div className="rounded-2xl border border-gray-200 bg-white p-4 shadow-sm">
-            <div className="flex items-start gap-4">
-              <div className="h-16 w-16 rounded-xl border border-dashed border-gray-200 bg-sand/40 flex items-center justify-center text-gray-400">
+          <div className="rounded-2xl border border-gray-200 bg-white p-3 shadow-sm sm:p-4">
+            <div className="flex items-start gap-3 sm:gap-4">
+              <div className="flex h-14 w-14 items-center justify-center rounded-xl border border-dashed border-gray-200 bg-sand/40 text-gray-400 sm:h-16 sm:w-16">
                 🔧
               </div>
               <div className="flex-1">
                 <div className="inline-flex items-center rounded-full bg-sand px-3 py-1 text-xs text-gray-600">
                   {asset?.assetType || 'Equipo'}
                 </div>
-                <div className="mt-2 text-lg font-semibold">{assetLabel}</div>
-                <div className="mt-1 text-sm text-gray-500">
+                <div className="mt-1.5 text-base font-semibold sm:mt-2 sm:text-lg">{assetLabel}</div>
+                <div className="mt-1 text-xs text-gray-500 sm:text-sm">
                   {asset?.serialNumber || 'Genérico'}
                 </div>
-                <div className="mt-1 text-sm text-gray-500">{asset ? 'Cargado' : 'No cargado'}</div>
+                <div className="mt-1 text-xs text-gray-500 sm:text-sm">{asset ? 'Cargado' : 'No cargado'}</div>
               </div>
-              <div className="flex items-center gap-2 text-sm text-gray-500">
+              <div className="flex items-center gap-1.5 text-xs text-gray-500 sm:gap-2 sm:text-sm">
                 <button className="rounded-full border border-gray-200 px-2 py-1">🔍</button>
                 <button className="rounded-full border border-gray-200 px-2 py-1">✎</button>
                 <button className="rounded-full border border-gray-200 px-2 py-1">⋮</button>
@@ -1218,10 +1219,10 @@ export default function OrdenDetallePage() {
           </div>
         </div>
 
-        <div id="order-tabs-section" className="mt-6 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
-          <div className="flex items-start justify-between">
+        <div id="order-tabs-section" className="mt-4 rounded-2xl border border-gray-200 bg-white p-3 shadow-sm sm:mt-6 sm:p-6">
+          <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
             <h2 className="text-lg font-semibold">Orden #{formatOrderNumber(order?.orderNumber)}</h2>
-            <div className="flex items-center gap-4 text-sm text-gray-500">
+            <div className="flex flex-wrap items-center gap-2 text-sm text-gray-500 sm:gap-4">
               <span>SMS Entrada</span>
               <span>SMS Salida</span>
               <span className={`rounded-full border px-3 py-1 text-xs font-semibold ${whatsappBadge.className}`}>
@@ -1240,8 +1241,8 @@ export default function OrdenDetallePage() {
             </div>
           </div>
 
-          <div className="mt-4 grid gap-4 lg:grid-cols-2">
-            <div className="rounded-xl border border-gray-200 p-4 text-sm">
+          <div className="mt-3 grid gap-3 sm:mt-4 sm:gap-4 lg:grid-cols-2">
+            <div className="rounded-xl border border-gray-200 p-3 text-sm sm:p-4">
               <p className="text-gray-500">
                 <span className="font-semibold text-ink">Responsable:</span> {extractResponsable(order?.internalNotes)}
               </p>
@@ -1253,7 +1254,7 @@ export default function OrdenDetallePage() {
                 {formatDate(order?.promisedAt || null)}
               </p>
             </div>
-            <div className="rounded-xl border border-gray-200 p-4 text-sm">
+            <div className="rounded-xl border border-gray-200 p-3 text-sm sm:p-4">
               <div className="flex items-center justify-between">
                 <span className="font-semibold text-ink">Garantía</span>
                 <div className="h-6 w-12 rounded-full bg-gray-200" />
@@ -1270,7 +1271,7 @@ export default function OrdenDetallePage() {
             </div>
           </div>
 
-          <div className="mt-4 rounded-xl border border-gray-200 p-4 text-sm space-y-3">
+          <div className="mt-3 space-y-3 rounded-xl border border-gray-200 p-3 text-sm sm:mt-4 sm:p-4">
             <div className="flex items-start gap-3">
               <div className="flex-1">
                 <span className="font-semibold text-ink">Trabajo:</span>{' '}
@@ -1371,27 +1372,27 @@ export default function OrdenDetallePage() {
             </div>
           </div>
 
-          <div className="mt-4 flex flex-wrap items-center gap-3 text-sm">
-            <span className="rounded-full bg-brand px-4 py-2 text-white">{areaLabel}</span>
-            <span className="rounded-full bg-sand px-4 py-2 text-gray-700">{statusLabel}</span>
+          <div className="mt-3 flex flex-wrap items-center gap-2.5 text-sm sm:mt-4 sm:gap-3">
+            <span className="rounded-full bg-brand px-3 py-1.5 text-white sm:px-4 sm:py-2">{areaLabel}</span>
+            <span className="rounded-full bg-sand px-3 py-1.5 text-gray-700 sm:px-4 sm:py-2">{statusLabel}</span>
             <button
-              className="rounded-full border border-gray-200 bg-white px-4 py-2 text-gray-700 hover:bg-sand"
+              className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-gray-700 hover:bg-sand sm:px-4 sm:py-2"
               onClick={() => setShowStatusModal(true)}
             >
               Cambiar estado
             </button>
-            <span className="ml-2 text-xs text-gray-500">
+            <span className="text-xs text-gray-500 sm:ml-2">
               Último cambio de estado: {formatDate(order?.updatedAt || null)}
             </span>
           </div>
         </div>
 
-        <div className="mt-6 rounded-2xl border border-gray-200 bg-white p-6 shadow-sm">
+        <div className="mt-4 rounded-2xl border border-gray-200 bg-white p-3 shadow-sm sm:mt-6 sm:p-6">
           <div className="flex flex-wrap items-center justify-between gap-3">
             <h3 className="text-lg font-semibold">Productos y servicios</h3>
-            <div className="flex flex-wrap items-center gap-2 text-sm">
+            <div className="flex flex-wrap items-center gap-1.5 text-sm sm:gap-2">
               <button
-                className={`rounded-2xl border px-4 py-2 font-medium ${
+                className={`rounded-2xl border px-3 py-1.5 font-medium sm:px-4 sm:py-2 ${
                   order?.quoteApproved
                     ? 'border-green-200 bg-green-50 text-green-700'
                     : 'border-gray-200 bg-white text-gray-500'
@@ -1408,22 +1409,22 @@ export default function OrdenDetallePage() {
               >
                 {order?.quoteApproved ? '🔒 Aprobado' : 'Pendiente'}
               </button>
-              <button className="h-11 w-11 rounded-2xl border border-gray-200 bg-sand/50 text-gray-600">i</button>
+              <button className="h-9 w-9 rounded-2xl border border-gray-200 bg-sand/50 text-gray-600 sm:h-11 sm:w-11">i</button>
               <button
-                className="h-11 w-11 rounded-2xl border border-gray-200 bg-sand/50 text-gray-600"
+                className="h-9 w-9 rounded-2xl border border-gray-200 bg-sand/50 text-gray-600 sm:h-11 sm:w-11"
                 onClick={() => window.print()}
               >
                 🖨
               </button>
               <button
-                className="h-11 w-11 rounded-2xl border border-gray-200 bg-sand/50 text-gray-600"
+                className="h-9 w-9 rounded-2xl border border-gray-200 bg-sand/50 text-gray-600 sm:h-11 sm:w-11"
                 onClick={() => setShowTaxModal(true)}
                 title="IVA por sucursal"
               >
                 %
               </button>
               <button
-                className={`rounded-2xl border border-gray-200 px-5 py-2 ${itemType === 'product' ? 'bg-sand' : 'bg-sand/40'}`}
+                className={`rounded-2xl border border-gray-200 px-4 py-1.5 sm:px-5 sm:py-2 ${itemType === 'product' ? 'bg-sand' : 'bg-sand/40'}`}
                 onClick={() => {
                   setItemType('product');
                   setShowItemComposer(true);
@@ -1432,7 +1433,7 @@ export default function OrdenDetallePage() {
                 + Producto
               </button>
               <button
-                className={`rounded-2xl border border-gray-200 px-5 py-2 ${itemType === 'service' ? 'bg-sand' : 'bg-sand/40'}`}
+                className={`rounded-2xl border border-gray-200 px-4 py-1.5 sm:px-5 sm:py-2 ${itemType === 'service' ? 'bg-sand' : 'bg-sand/40'}`}
                 onClick={() => {
                   setItemType('service');
                   setShowItemComposer(true);
@@ -1441,20 +1442,21 @@ export default function OrdenDetallePage() {
                 + Servicio
               </button>
               <button
-                className={`rounded-2xl border border-gray-200 px-5 py-2 ${itemType === 'additional' ? 'bg-sand' : 'bg-sand/40'}`}
+                className={`rounded-2xl border border-gray-200 px-4 py-1.5 sm:px-5 sm:py-2 ${itemType === 'additional' ? 'bg-sand' : 'bg-sand/40'}`}
                 onClick={() => {
                   setItemType('additional');
                   setAdditionalKind('product');
                   setAdditionalDescription('');
                   setAdditionalNetAmount(0);
                   setAdditionalIvaPercent(0);
+                  setAdditionalError(null);
                   setShowAdditionalModal(true);
                 }}
               >
                 + Adicional
               </button>
               <button
-                className="rounded-2xl bg-brand px-5 py-2 text-white"
+                className="rounded-2xl bg-brand px-4 py-1.5 text-white sm:px-5 sm:py-2"
                 onClick={openProvisionalPrint}
               >
                 ↻ Provisional
@@ -1612,7 +1614,7 @@ export default function OrdenDetallePage() {
               </div>
             ) : (
               <div className="overflow-x-auto overflow-y-visible rounded-xl border border-gray-200">
-                <table className="w-full text-sm">
+                <table className="min-w-[980px] text-sm">
                   <thead className="bg-sand/40 text-gray-500">
                     <tr>
                       <th className="px-3 py-2 w-10"></th>
@@ -2023,7 +2025,10 @@ export default function OrdenDetallePage() {
                 <h2 className="text-xl font-semibold text-ink">Creando Adicional</h2>
                 <button
                   className="text-3xl leading-none text-gray-400 hover:text-ink"
-                  onClick={() => setShowAdditionalModal(false)}
+                  onClick={() => {
+                    setAdditionalError(null);
+                    setShowAdditionalModal(false);
+                  }}
                 >
                   ×
                 </button>
@@ -2097,10 +2102,19 @@ export default function OrdenDetallePage() {
                 </div>
               </div>
 
+              {additionalError ? (
+                <div className="mt-4 rounded-xl border border-rose-200 bg-rose-50 px-3 py-2 text-sm text-rose-700">
+                  {additionalError}
+                </div>
+              ) : null}
+
               <div className="mt-6 flex items-center justify-end gap-3">
                 <button
                   className="rounded-xl bg-sand px-4 py-2 text-sm font-medium text-gray-700"
-                  onClick={() => setShowAdditionalModal(false)}
+                  onClick={() => {
+                    setAdditionalError(null);
+                    setShowAdditionalModal(false);
+                  }}
                 >
                   Cancelar
                 </button>
@@ -2108,12 +2122,14 @@ export default function OrdenDetallePage() {
                   className="rounded-xl bg-brand px-4 py-2 text-sm font-semibold text-white disabled:bg-gray-300"
                   disabled={!canEditQuote || !additionalDescription.trim() || savingAdditional}
                   onClick={async () => {
-                    if (!order?.id || !token || !canEditQuote) return;
+                    const targetOrderId = order?.id || params?.id;
+                    if (!targetOrderId || !token || !canEditQuote) return;
+                    setAdditionalError(null);
                     setSavingAdditional(true);
                     try {
                       const prefix = ADDITIONAL_TYPE_PREFIX[additionalKind];
                       const storedDescription = `${prefix} ${additionalDescription.trim()}`.trim();
-                      const created = await apiRequest<WorkOrderItem>(`/work-orders/${order.id}/items`, {
+                      const created = await apiRequest<WorkOrderItem>(`/work-orders/${targetOrderId}/items`, {
                         method: 'POST',
                         headers: { Authorization: `Bearer ${token}` },
                         body: JSON.stringify({
@@ -2126,13 +2142,24 @@ export default function OrdenDetallePage() {
                         }),
                       });
                       setItems((prev) => [...prev, created]);
-                      const refreshed = await apiRequest<WorkOrder>(`/work-orders/${order.id}`, {
-                        headers: { Authorization: `Bearer ${token}` },
-                      });
-                      setOrder(refreshed);
+                      try {
+                        const refreshed = await apiRequest<WorkOrder>(`/work-orders/${targetOrderId}`, {
+                          headers: { Authorization: `Bearer ${token}` },
+                        });
+                        setOrder(refreshed);
+                      } catch {
+                        setUiNotice({
+                          type: 'success',
+                          message:
+                            'Ítem guardado. Actualiza la pantalla si no ves los totales al instante.',
+                        });
+                      }
+                      setAdditionalError(null);
                       setShowAdditionalModal(false);
                     } catch (err: any) {
-                      setUiNotice({ type: 'error', message: err?.message || 'No se pudo guardar el adicional.' });
+                      const message = err?.message || 'No se pudo guardar el adicional.';
+                      setAdditionalError(message);
+                      setUiNotice({ type: 'error', message });
                     } finally {
                       setSavingAdditional(false);
                     }

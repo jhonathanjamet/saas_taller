@@ -114,6 +114,110 @@ export class WorkOrdersService {
     }));
   }
 
+  private async getViaSql(id: string, tenantId?: string) {
+    const where: string[] = ['wo.id::text = $1', 'wo.deleted_at IS NULL'];
+    const params: Array<string> = [id];
+    if (tenantId) {
+      params.push(tenantId);
+      where.push(`wo.tenant_id::text = $${params.length}`);
+    }
+
+    const sql = `
+      SELECT
+        wo.id::text AS id,
+        wo.tenant_id::text AS "tenantId",
+        wo.branch_id::text AS "branchId",
+        wo.order_number AS "orderNumber",
+        wo.customer_id::text AS "customerId",
+        wo.asset_id::text AS "assetId",
+        wo.status_id::text AS "statusId",
+        wo.priority::text AS priority,
+        wo.order_type AS "orderType",
+        wo.internal_notes AS "internalNotes",
+        wo.initial_diagnosis AS "initialDiagnosis",
+        wo.technical_diagnosis AS "technicalDiagnosis",
+        wo.client_notes AS "clientNotes",
+        wo.quote_approved AS "quoteApproved",
+        wo.received_at AS "receivedAt",
+        wo.promised_at AS "promisedAt",
+        wo.subtotal_products AS "subtotalProducts",
+        wo.subtotal_services AS "subtotalServices",
+        wo.discount_amount AS "discountAmount",
+        wo.tax_amount AS "taxAmount",
+        wo.total_amount AS "totalAmount",
+        wo.internal_cost AS "internalCost",
+        wo.delivered_at AS "deliveredAt",
+        wo.created_at AS "createdAt",
+        wo.updated_at AS "updatedAt"
+      FROM work_order wo
+      WHERE ${where.join(' AND ')}
+      LIMIT 1
+    `;
+
+    const rows = await this.prisma.$queryRawUnsafe<
+      Array<{
+        id: string;
+        tenantId: string;
+        branchId: string;
+        orderNumber: string;
+        customerId: string;
+        assetId: string | null;
+        statusId: string;
+        priority: string | null;
+        orderType: string | null;
+        internalNotes: string | null;
+        initialDiagnosis: string | null;
+        technicalDiagnosis: string | null;
+        clientNotes: string | null;
+        quoteApproved: boolean | null;
+        receivedAt: Date | null;
+        promisedAt: Date | null;
+        subtotalProducts: Prisma.Decimal | number | null;
+        subtotalServices: Prisma.Decimal | number | null;
+        discountAmount: Prisma.Decimal | number | null;
+        taxAmount: Prisma.Decimal | number | null;
+        totalAmount: Prisma.Decimal | number | null;
+        internalCost: Prisma.Decimal | number | null;
+        deliveredAt: Date | null;
+        createdAt: Date;
+        updatedAt: Date;
+      }>
+    >(sql, ...params);
+
+    if (!rows.length) return null;
+    const row = rows[0];
+    const asNumber = (value: Prisma.Decimal | number | null) =>
+      value instanceof Prisma.Decimal ? Number(value) : (value ?? 0);
+
+    return {
+      id: row.id,
+      tenantId: row.tenantId,
+      branchId: row.branchId,
+      orderNumber: row.orderNumber,
+      customerId: row.customerId,
+      assetId: row.assetId,
+      statusId: row.statusId,
+      priority: row.priority,
+      orderType: row.orderType,
+      internalNotes: row.internalNotes,
+      initialDiagnosis: row.initialDiagnosis,
+      technicalDiagnosis: row.technicalDiagnosis,
+      clientNotes: row.clientNotes,
+      quoteApproved: row.quoteApproved ?? false,
+      receivedAt: row.receivedAt,
+      promisedAt: row.promisedAt,
+      subtotalProducts: asNumber(row.subtotalProducts),
+      subtotalServices: asNumber(row.subtotalServices),
+      discountAmount: asNumber(row.discountAmount),
+      taxAmount: asNumber(row.taxAmount),
+      totalAmount: asNumber(row.totalAmount),
+      internalCost: asNumber(row.internalCost),
+      deliveredAt: row.deliveredAt,
+      createdAt: row.createdAt,
+      updatedAt: row.updatedAt,
+    };
+  }
+
   async list() {
     const tenantId = this.context.getTenantId();
     try {
@@ -192,9 +296,19 @@ export class WorkOrdersService {
   }
 
   async get(id: string) {
-    const workOrder = await this.prisma.workOrder.findFirst({
-      where: { id, deletedAt: null },
-    });
+    const tenantId = this.context.getTenantId();
+    let workOrder: any = null;
+    try {
+      workOrder = await this.prisma.workOrder.findFirst({
+        where: { id, deletedAt: null, ...(tenantId ? { tenantId } : {}) },
+      });
+    } catch (error) {
+      this.logger.error(
+        `get(${id}) falló con Prisma ORM`,
+        error instanceof Error ? error.stack : String(error),
+      );
+      workOrder = await this.getViaSql(id, tenantId);
+    }
     if (!workOrder) throw new NotFoundException('OT no encontrada');
     return workOrder;
   }
@@ -390,6 +504,37 @@ export class WorkOrdersService {
     return { totalCost, totalPrice };
   }
 
+  private async recomputeAndPersistOrderTotals(workOrderId: string) {
+    try {
+      const items = await this.prisma.workOrderItem.findMany({ where: { workOrderId } });
+      const order = await this.prisma.workOrder.findFirst({
+        where: { id: workOrderId },
+        select: { discountAmount: true },
+      });
+      const taxRate = await this.resolveTaxRate(workOrderId);
+      const aggregates = this.computeTotals(
+        items.map((item) => ({
+          itemType: item.itemType,
+          totalPrice: Number(item.totalPrice || 0),
+          totalCost: Number(item.totalCost || 0),
+        })),
+        Number(order?.discountAmount || 0),
+        taxRate,
+      );
+      await this.prisma.workOrder.updateMany({
+        where: { id: workOrderId },
+        data: aggregates,
+      });
+    } catch (error: any) {
+      // No bloqueamos el guardado de ítems si el recálculo falla.
+      // El usuario debe poder seguir operando y luego forzar recálculo global.
+      console.error('[work-orders] No se pudo recalcular totales de OT', {
+        workOrderId,
+        message: error?.message || String(error),
+      });
+    }
+  }
+
   private async resolveTaxRate(id: string) {
     void id;
     // Regla operativa solicitada: no aplicar IVA global automático a la OT.
@@ -447,22 +592,7 @@ export class WorkOrdersService {
       },
     });
 
-    const items = await this.prisma.workOrderItem.findMany({ where: { workOrderId: id } });
-    const order = await this.prisma.workOrder.findFirst({ where: { id }, select: { discountAmount: true } });
-    const taxRate = await this.resolveTaxRate(id);
-    const aggregates = this.computeTotals(
-      items.map((item) => ({
-        itemType: item.itemType,
-        totalPrice: Number(item.totalPrice || 0),
-        totalCost: Number(item.totalCost || 0),
-      })),
-      Number(order?.discountAmount || 0),
-      taxRate,
-    );
-    await this.prisma.workOrder.update({
-      where: { id },
-      data: aggregates,
-    });
+    await this.recomputeAndPersistOrderTotals(id);
 
     return created;
   }
@@ -507,22 +637,7 @@ export class WorkOrdersService {
       },
     });
 
-    const items = await this.prisma.workOrderItem.findMany({ where: { workOrderId: id } });
-    const order = await this.prisma.workOrder.findFirst({ where: { id }, select: { discountAmount: true } });
-    const taxRate = await this.resolveTaxRate(id);
-    const aggregates = this.computeTotals(
-      items.map((item) => ({
-        itemType: item.itemType,
-        totalPrice: Number(item.totalPrice || 0),
-        totalCost: Number(item.totalCost || 0),
-      })),
-      Number(order?.discountAmount || 0),
-      taxRate,
-    );
-    await this.prisma.workOrder.update({
-      where: { id },
-      data: aggregates,
-    });
+    await this.recomputeAndPersistOrderTotals(id);
 
     return updated;
   }
@@ -536,22 +651,7 @@ export class WorkOrdersService {
 
     await this.prisma.workOrderItem.delete({ where: { id: itemId } });
 
-    const items = await this.prisma.workOrderItem.findMany({ where: { workOrderId: id } });
-    const order = await this.prisma.workOrder.findFirst({ where: { id }, select: { discountAmount: true } });
-    const taxRate = await this.resolveTaxRate(id);
-    const aggregates = this.computeTotals(
-      items.map((item) => ({
-        itemType: item.itemType,
-        totalPrice: Number(item.totalPrice || 0),
-        totalCost: Number(item.totalCost || 0),
-      })),
-      Number(order?.discountAmount || 0),
-      taxRate,
-    );
-    await this.prisma.workOrder.update({
-      where: { id },
-      data: aggregates,
-    });
+    await this.recomputeAndPersistOrderTotals(id);
 
     return { id: itemId };
   }
@@ -629,7 +729,7 @@ export class WorkOrdersService {
         Number(dto.discountAmount || 0),
         taxRate,
       );
-      await this.prisma.workOrder.update({
+      await this.prisma.workOrder.updateMany({
         where: { id },
         data: aggregates,
       });
@@ -695,7 +795,7 @@ export class WorkOrdersService {
     }
 
     const deliveredAt = new Date();
-    await this.prisma.workOrder.update({
+    await this.prisma.workOrder.updateMany({
       where: { id: existing.id },
       data: {
         deliveredAt,
