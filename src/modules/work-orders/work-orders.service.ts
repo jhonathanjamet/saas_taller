@@ -17,28 +17,157 @@ export class WorkOrdersService {
     return value as Record<string, unknown>;
   }
 
-  list() {
-    const tenantId = this.context.getTenantId();
-    return this.prisma.workOrder.findMany({
-      where: { deletedAt: null, deliveredAt: null, ...(tenantId ? { tenantId } : {}) },
-      include: {
-        status: { select: { id: true, name: true, code: true } },
-        assignee: { select: { id: true, firstName: true, lastName: true } },
-      },
-      orderBy: { createdAt: 'desc' },
-    });
+  private isUuidDataError(error: unknown): boolean {
+    if (!error || typeof error !== 'object') return false;
+    const code = (error as { code?: string }).code;
+    const message = String((error as { message?: string }).message || '');
+    return code === 'P2023' || message.toLowerCase().includes('error creating uuid');
   }
 
-  history() {
+  private async listViaSql(tenantId: string | undefined, history: boolean) {
+    const where: string[] = ['wo.deleted_at IS NULL'];
+    const params: Array<string> = [];
+
+    if (history) {
+      where.push('wo.delivered_at IS NOT NULL');
+    } else {
+      where.push('wo.delivered_at IS NULL');
+    }
+
+    if (tenantId) {
+      params.push(tenantId);
+      where.push(`wo.tenant_id::text = $${params.length}`);
+    }
+
+    const orderBy = history ? 'wo.delivered_at DESC' : 'wo.created_at DESC';
+    const sql = `
+      SELECT
+        wo.id::text AS id,
+        wo.order_number AS "orderNumber",
+        wo.customer_id::text AS "customerId",
+        wo.asset_id::text AS "assetId",
+        wo.status_id::text AS "statusId",
+        wo.order_type AS "orderType",
+        wo.priority::text AS priority,
+        wo.internal_notes AS "internalNotes",
+        wo.initial_diagnosis AS "initialDiagnosis",
+        wo.technical_diagnosis AS "technicalDiagnosis",
+        wo.client_notes AS "clientNotes",
+        wo.total_amount AS "totalAmount",
+        wo.delivered_at AS "deliveredAt",
+        wos.id::text AS "statusIdJoin",
+        wos.name AS "statusNameJoin",
+        wos.code AS "statusCodeJoin"
+      FROM work_order wo
+      LEFT JOIN work_order_status wos ON wos.id::text = wo.status_id::text
+      WHERE ${where.join(' AND ')}
+      ORDER BY ${orderBy}
+    `;
+
+    const rows = await this.prisma.$queryRawUnsafe<
+      Array<{
+        id: string;
+        orderNumber: string;
+        customerId: string;
+        assetId: string | null;
+        statusId: string;
+        orderType: string | null;
+        priority: string | null;
+        internalNotes: string | null;
+        initialDiagnosis: string | null;
+        technicalDiagnosis: string | null;
+        clientNotes: string | null;
+        totalAmount: Prisma.Decimal | number | null;
+        deliveredAt: Date | null;
+        statusIdJoin: string | null;
+        statusNameJoin: string | null;
+        statusCodeJoin: string | null;
+      }>
+    >(sql, ...params);
+
+    return rows.map((row) => ({
+      id: row.id,
+      orderNumber: row.orderNumber,
+      customerId: row.customerId,
+      assetId: row.assetId,
+      statusId: row.statusId,
+      orderType: row.orderType,
+      priority: row.priority,
+      internalNotes: row.internalNotes,
+      initialDiagnosis: row.initialDiagnosis,
+      technicalDiagnosis: row.technicalDiagnosis,
+      clientNotes: row.clientNotes,
+      totalAmount:
+        row.totalAmount instanceof Prisma.Decimal
+          ? Number(row.totalAmount)
+          : (row.totalAmount ?? null),
+      deliveredAt: row.deliveredAt,
+      status: row.statusIdJoin
+        ? {
+            id: row.statusIdJoin,
+            name: row.statusNameJoin || row.statusCodeJoin || 'Sin estado',
+            code: row.statusCodeJoin,
+          }
+        : null,
+    }));
+  }
+
+  async list() {
     const tenantId = this.context.getTenantId();
-    return this.prisma.workOrder.findMany({
-      where: { deletedAt: null, deliveredAt: { not: null }, ...(tenantId ? { tenantId } : {}) },
-      include: {
-        status: { select: { id: true, name: true, code: true } },
-        assignee: { select: { id: true, firstName: true, lastName: true } },
-      },
-      orderBy: { deliveredAt: 'desc' },
-    });
+    try {
+      return await this.prisma.workOrder.findMany({
+        where: { deletedAt: null, deliveredAt: null, ...(tenantId ? { tenantId } : {}) },
+        select: {
+          id: true,
+          orderNumber: true,
+          customerId: true,
+          assetId: true,
+          statusId: true,
+          orderType: true,
+          priority: true,
+          internalNotes: true,
+          initialDiagnosis: true,
+          technicalDiagnosis: true,
+          clientNotes: true,
+          totalAmount: true,
+          deliveredAt: true,
+          status: { select: { id: true, name: true, code: true } },
+        },
+        orderBy: { createdAt: 'desc' },
+      });
+    } catch (error) {
+      if (!this.isUuidDataError(error)) throw error;
+      return this.listViaSql(tenantId, false);
+    }
+  }
+
+  async history() {
+    const tenantId = this.context.getTenantId();
+    try {
+      return await this.prisma.workOrder.findMany({
+        where: { deletedAt: null, deliveredAt: { not: null }, ...(tenantId ? { tenantId } : {}) },
+        select: {
+          id: true,
+          orderNumber: true,
+          customerId: true,
+          assetId: true,
+          statusId: true,
+          orderType: true,
+          priority: true,
+          internalNotes: true,
+          initialDiagnosis: true,
+          technicalDiagnosis: true,
+          clientNotes: true,
+          totalAmount: true,
+          deliveredAt: true,
+          status: { select: { id: true, name: true, code: true } },
+        },
+        orderBy: { deliveredAt: 'desc' },
+      });
+    } catch (error) {
+      if (!this.isUuidDataError(error)) throw error;
+      return this.listViaSql(tenantId, true);
+    }
   }
 
   async get(id: string) {
