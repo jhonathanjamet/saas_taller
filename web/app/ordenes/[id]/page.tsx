@@ -374,10 +374,14 @@ export default function OrdenDetallePage() {
   const [itemNoteItem, setItemNoteItem] = useState<WorkOrderItem | null>(null);
   const [itemNoteText, setItemNoteText] = useState('');
   const [savingItemNote, setSavingItemNote] = useState(false);
+  const [savingTask, setSavingTask] = useState(false);
+  const [savingNote, setSavingNote] = useState(false);
+  const [savingDiagnostic, setSavingDiagnostic] = useState(false);
   const [uiNotice, setUiNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const itemMenuRef = useRef<HTMLDivElement | null>(null);
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
+  const currentOrderId = order?.id || (Array.isArray(params?.id) ? params.id[0] : params?.id) || '';
   const apiBase = API_URL;
 
   useEffect(() => {
@@ -537,45 +541,45 @@ export default function OrdenDetallePage() {
   }, [order?.id, order?.statusId, order?.orderType, status?.id, showStatusModal]);
 
   useEffect(() => {
-    if (!order?.id || !token) return;
+    if (!currentOrderId || !token) return;
     setAttachmentsLoading(true);
     apiRequest<Attachment[]>(
-      `/files?entityType=work_order&entityId=${encodeURIComponent(order.id)}`,
+      `/files?entityType=work_order&entityId=${encodeURIComponent(currentOrderId)}`,
       { headers: { Authorization: `Bearer ${token}` } },
     )
       .then(setAttachments)
       .finally(() => setAttachmentsLoading(false));
-  }, [order?.id, token]);
+  }, [currentOrderId, token]);
 
   useEffect(() => {
-    if (!order?.id || !token) return;
+    if (!currentOrderId || !token) return;
     setCommentsLoading(true);
-    apiRequest<WorkOrderComment[]>(`/work-orders/${order.id}/comments`, {
+    apiRequest<WorkOrderComment[]>(`/work-orders/${currentOrderId}/comments`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(setComments)
       .finally(() => setCommentsLoading(false));
-  }, [order?.id, token]);
+  }, [currentOrderId, token]);
 
   useEffect(() => {
-    if (!order?.id || !token) return;
+    if (!currentOrderId || !token) return;
     setTasksLoading(true);
-    apiRequest<WorkOrderTask[]>(`/work-orders/${order.id}/tasks`, {
+    apiRequest<WorkOrderTask[]>(`/work-orders/${currentOrderId}/tasks`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(setTasks)
       .finally(() => setTasksLoading(false));
-  }, [order?.id, token]);
+  }, [currentOrderId, token]);
 
   useEffect(() => {
-    if (!order?.id || !token) return;
+    if (!currentOrderId || !token) return;
     setItemsLoading(true);
-    apiRequest<WorkOrderItem[]>(`/work-orders/${order.id}/items`, {
+    apiRequest<WorkOrderItem[]>(`/work-orders/${currentOrderId}/items`, {
       headers: { Authorization: `Bearer ${token}` },
     })
       .then(setItems)
       .finally(() => setItemsLoading(false));
-  }, [order?.id, token]);
+  }, [currentOrderId, token]);
 
   useEffect(() => {
     if (!token) return;
@@ -701,6 +705,105 @@ export default function OrdenDetallePage() {
   const diagnosticComments = comments
     .filter((c) => c.content.startsWith('[DX]'))
     .map((c) => ({ ...c, content: c.content.replace(/^\[DX\]\s*/, '') }));
+
+  const addTaskFromInput = async () => {
+    if (!newTaskTitle.trim() || !currentOrderId || !token || savingTask) return;
+    setSavingTask(true);
+    try {
+      const created = await apiRequest<WorkOrderTask>(`/work-orders/${currentOrderId}/tasks`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ title: newTaskTitle.trim() }),
+      });
+      setTasks((prev) => [created, ...prev]);
+      setNewTaskTitle('');
+      setUiNotice({ type: 'success', message: 'Tarea guardada.' });
+    } catch (err: any) {
+      setUiNotice({ type: 'error', message: err?.message || 'No se pudo guardar la tarea.' });
+    } finally {
+      setSavingTask(false);
+    }
+  };
+
+  const addNoteFromInput = async () => {
+    if (!newNote.trim() || !currentOrderId || !token || savingNote) return;
+    setSavingNote(true);
+    try {
+      const created = await apiRequest<WorkOrderComment>(`/work-orders/${currentOrderId}/comments`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify({ content: newNote.trim(), isInternal: false, kind: 'note' }),
+      });
+
+      try {
+        const refreshed = await apiRequest<WorkOrderComment[]>(
+          `/work-orders/${currentOrderId}/comments`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        setComments(refreshed);
+      } catch {
+        setComments((prev) => [created, ...prev]);
+      }
+
+      setNewNote('');
+      setUiNotice({ type: 'success', message: 'Nota guardada.' });
+    } catch (err: any) {
+      setUiNotice({ type: 'error', message: err?.message || 'No se pudo guardar la nota.' });
+    } finally {
+      setSavingNote(false);
+    }
+  };
+
+  const addDiagnosticFromInput = async () => {
+    if (!newDiagnostic.trim() || !currentOrderId || !token || savingDiagnostic) return;
+    setSavingDiagnostic(true);
+    try {
+      const created = await apiRequest<WorkOrderComment>(`/work-orders/${currentOrderId}/comments`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}` },
+        body: JSON.stringify({
+          content: newDiagnostic.trim(),
+          isInternal: true,
+          kind: 'diagnostic',
+        }),
+      });
+
+      try {
+        const refreshed = await apiRequest<WorkOrderComment[]>(
+          `/work-orders/${currentOrderId}/comments`,
+          { headers: { Authorization: `Bearer ${token}` } },
+        );
+        setComments(refreshed);
+      } catch {
+        setComments((prev) => [created, ...prev]);
+      }
+
+      setNewDiagnostic('');
+      setUiNotice({ type: 'success', message: 'Diagnóstico guardado.' });
+    } catch (err: any) {
+      setUiNotice({ type: 'error', message: err?.message || 'No se pudo guardar el diagnóstico.' });
+    } finally {
+      setSavingDiagnostic(false);
+    }
+  };
+
+  const handleTopAddAction = async () => {
+    if (activeTab === 'tareas') {
+      await addTaskFromInput();
+      return;
+    }
+    if (activeTab === 'notas') {
+      await addNoteFromInput();
+      return;
+    }
+    if (activeTab === 'diagnosticos') {
+      await addDiagnosticFromInput();
+      return;
+    }
+    if (activeTab === 'archivos') {
+      setUiNotice({ type: 'success', message: 'Usa “Examinar” para subir archivos.' });
+    }
+  };
 
   const orderArea = normalizeArea(order?.orderType || 'entrada');
   const areaLabel = STATUS_LABELS[orderArea] || 'Entrada';
@@ -2319,13 +2422,13 @@ export default function OrdenDetallePage() {
                 </button>
                 <button
                   className="rounded-2xl bg-brand px-6 py-2 text-xl font-semibold text-white disabled:bg-gray-300"
-                  disabled={!itemNoteText.trim() || savingItemNote}
+                  disabled={!itemNoteText.trim() || savingItemNote || !currentOrderId || !token}
                   onClick={async () => {
-                    if (!order?.id || !token || !itemNoteItem || !itemNoteText.trim()) return;
+                    if (!currentOrderId || !token || !itemNoteItem || !itemNoteText.trim()) return;
                     setSavingItemNote(true);
                     try {
                       const created = await apiRequest<WorkOrderComment>(
-                        `/work-orders/${order.id}/comments`,
+                        `/work-orders/${currentOrderId}/comments`,
                         {
                           method: 'POST',
                           headers: { Authorization: `Bearer ${token}` },
@@ -2336,11 +2439,20 @@ export default function OrdenDetallePage() {
                           }),
                         },
                       );
-                      setComments((prev) => [created, ...prev]);
+                      try {
+                        const refreshed = await apiRequest<WorkOrderComment[]>(
+                          `/work-orders/${currentOrderId}/comments`,
+                          { headers: { Authorization: `Bearer ${token}` } },
+                        );
+                        setComments(refreshed);
+                      } catch {
+                        setComments((prev) => [created, ...prev]);
+                      }
                       setActiveTab('notas');
                       setShowItemNoteModal(false);
                       setItemNoteItem(null);
                       setItemNoteText('');
+                      setUiNotice({ type: 'success', message: 'Nota del ítem guardada.' });
                     } catch (err: any) {
                       setUiNotice({ type: 'error', message: err?.message || 'No se pudo guardar la nota del ítem.' });
                     } finally {
@@ -2573,7 +2685,25 @@ export default function OrdenDetallePage() {
               </button>
             ))}
             <div className="ml-auto">
-              <button className="rounded-full border border-gray-200 px-4 py-2 text-sm">+ Agregar</button>
+              <button
+                className="rounded-full border border-gray-200 px-4 py-2 text-sm disabled:cursor-not-allowed disabled:opacity-50"
+                onClick={handleTopAddAction}
+                disabled={
+                  !token ||
+                  !currentOrderId ||
+                  (activeTab === 'tareas' && (!newTaskTitle.trim() || savingTask)) ||
+                  (activeTab === 'notas' && (!newNote.trim() || savingNote)) ||
+                  (activeTab === 'diagnosticos' && (!newDiagnostic.trim() || savingDiagnostic))
+                }
+              >
+                {activeTab === 'tareas' && savingTask
+                  ? 'Guardando...'
+                  : activeTab === 'notas' && savingNote
+                  ? 'Guardando...'
+                  : activeTab === 'diagnosticos' && savingDiagnostic
+                  ? 'Guardando...'
+                  : '+ Agregar'}
+              </button>
             </div>
           </div>
 
@@ -2587,19 +2717,11 @@ export default function OrdenDetallePage() {
                   onChange={(e) => setNewTaskTitle(e.target.value)}
                 />
                 <button
-                  className="rounded-full bg-brand px-4 py-2 text-sm text-white"
-                  onClick={async () => {
-                    if (!newTaskTitle.trim() || !order?.id || !token) return;
-                    const created = await apiRequest<WorkOrderTask>(`/work-orders/${order.id}/tasks`, {
-                      method: 'POST',
-                      headers: { Authorization: `Bearer ${token}` },
-                      body: JSON.stringify({ title: newTaskTitle.trim() }),
-                    });
-                    setTasks((prev) => [created, ...prev]);
-                    setNewTaskTitle('');
-                  }}
+                  className="rounded-full bg-brand px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:bg-gray-300"
+                  onClick={addTaskFromInput}
+                  disabled={!newTaskTitle.trim() || !currentOrderId || !token || savingTask}
                 >
-                  + Agregar
+                  {savingTask ? 'Guardando...' : '+ Agregar'}
                 </button>
               </div>
 
@@ -2670,22 +2792,11 @@ export default function OrdenDetallePage() {
                 />
                 <div className="flex w-full items-center justify-end gap-2">
                   <button
-                    className="rounded-full bg-brand px-4 py-2 text-sm text-white"
-                    onClick={async () => {
-                      if (!newNote.trim() || !order?.id || !token) return;
-                      const created = await apiRequest<WorkOrderComment>(
-                        `/work-orders/${order.id}/comments`,
-                        {
-                          method: 'POST',
-                          headers: { Authorization: `Bearer ${token}` },
-                          body: JSON.stringify({ content: newNote.trim(), isInternal: false, kind: 'note' }),
-                        },
-                      );
-                      setComments((prev) => [created, ...prev]);
-                      setNewNote('');
-                    }}
+                    className="rounded-full bg-brand px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:bg-gray-300"
+                    onClick={addNoteFromInput}
+                    disabled={!newNote.trim() || !currentOrderId || !token || savingNote}
                   >
-                    + Agregar
+                    {savingNote ? 'Guardando...' : '+ Agregar'}
                   </button>
                 </div>
               </div>
@@ -2735,20 +2846,28 @@ export default function OrdenDetallePage() {
                               <button
                                 className="rounded-full bg-brand px-3 py-1 text-xs text-white"
                                 onClick={async () => {
-                                  if (!order?.id || !token || !editingValue.trim()) return;
-                                  const updated = await apiRequest<WorkOrderComment>(
-                                    `/work-orders/${order.id}/comments/${comment.id}`,
-                                    {
-                                      method: 'PATCH',
-                                      headers: { Authorization: `Bearer ${token}` },
-                                      body: JSON.stringify({ content: editingValue.trim() }),
-                                    },
-                                  );
-                                  setComments((prev) =>
-                                    prev.map((c) => (c.id === comment.id ? updated : c)),
-                                  );
-                                  setEditingCommentId(null);
-                                  setEditingValue('');
+                                  if (!currentOrderId || !token || !editingValue.trim()) return;
+                                  try {
+                                    const updated = await apiRequest<WorkOrderComment>(
+                                      `/work-orders/${currentOrderId}/comments/${comment.id}`,
+                                      {
+                                        method: 'PATCH',
+                                        headers: { Authorization: `Bearer ${token}` },
+                                        body: JSON.stringify({ content: editingValue.trim() }),
+                                      },
+                                    );
+                                    setComments((prev) =>
+                                      prev.map((c) => (c.id === comment.id ? updated : c)),
+                                    );
+                                    setEditingCommentId(null);
+                                    setEditingValue('');
+                                    setUiNotice({ type: 'success', message: 'Nota actualizada.' });
+                                  } catch (err: any) {
+                                    setUiNotice({
+                                      type: 'error',
+                                      message: err?.message || 'No se pudo actualizar la nota.',
+                                    });
+                                  }
                                 }}
                               >
                                 Guardar
@@ -2768,12 +2887,20 @@ export default function OrdenDetallePage() {
                               <button
                                 className="rounded-full border border-gray-200 px-3 py-1 text-xs text-red-600"
                                 onClick={async () => {
-                                  if (!order?.id || !token) return;
-                                  await apiRequest(`/work-orders/${order.id}/comments/${comment.id}`, {
-                                    method: 'DELETE',
-                                    headers: { Authorization: `Bearer ${token}` },
-                                  });
-                                  setComments((prev) => prev.filter((c) => c.id !== comment.id));
+                                  if (!currentOrderId || !token) return;
+                                  try {
+                                    await apiRequest(`/work-orders/${currentOrderId}/comments/${comment.id}`, {
+                                      method: 'DELETE',
+                                      headers: { Authorization: `Bearer ${token}` },
+                                    });
+                                    setComments((prev) => prev.filter((c) => c.id !== comment.id));
+                                    setUiNotice({ type: 'success', message: 'Nota eliminada.' });
+                                  } catch (err: any) {
+                                    setUiNotice({
+                                      type: 'error',
+                                      message: err?.message || 'No se pudo eliminar la nota.',
+                                    });
+                                  }
                                 }}
                               >
                                 Eliminar
@@ -2801,26 +2928,11 @@ export default function OrdenDetallePage() {
                 />
                 <div className="flex w-full items-center justify-end gap-2">
                   <button
-                    className="rounded-full bg-brand px-4 py-2 text-sm text-white"
-                    onClick={async () => {
-                      if (!newDiagnostic.trim() || !order?.id || !token) return;
-                      const created = await apiRequest<WorkOrderComment>(
-                        `/work-orders/${order.id}/comments`,
-                        {
-                          method: 'POST',
-                          headers: { Authorization: `Bearer ${token}` },
-                          body: JSON.stringify({
-                            content: newDiagnostic.trim(),
-                            isInternal: true,
-                            kind: 'diagnostic',
-                          }),
-                        },
-                      );
-                      setComments((prev) => [created, ...prev]);
-                      setNewDiagnostic('');
-                    }}
+                    className="rounded-full bg-brand px-4 py-2 text-sm text-white disabled:cursor-not-allowed disabled:bg-gray-300"
+                    onClick={addDiagnosticFromInput}
+                    disabled={!newDiagnostic.trim() || !currentOrderId || !token || savingDiagnostic}
                   >
-                    + Agregar
+                    {savingDiagnostic ? 'Guardando...' : '+ Agregar'}
                   </button>
                 </div>
               </div>
@@ -2849,12 +2961,20 @@ export default function OrdenDetallePage() {
                           <button
                             className="rounded-full border border-gray-200 px-3 py-1 text-xs text-red-600"
                             onClick={async () => {
-                              if (!order?.id || !token) return;
-                              await apiRequest(`/work-orders/${order.id}/comments/${comment.id}`, {
-                                method: 'DELETE',
-                                headers: { Authorization: `Bearer ${token}` },
-                              });
-                              setComments((prev) => prev.filter((c) => c.id !== comment.id));
+                              if (!currentOrderId || !token) return;
+                              try {
+                                await apiRequest(`/work-orders/${currentOrderId}/comments/${comment.id}`, {
+                                  method: 'DELETE',
+                                  headers: { Authorization: `Bearer ${token}` },
+                                });
+                                setComments((prev) => prev.filter((c) => c.id !== comment.id));
+                                setUiNotice({ type: 'success', message: 'Diagnóstico eliminado.' });
+                              } catch (err: any) {
+                                setUiNotice({
+                                  type: 'error',
+                                  message: err?.message || 'No se pudo eliminar el diagnóstico.',
+                                });
+                              }
                             }}
                           >
                             Eliminar
