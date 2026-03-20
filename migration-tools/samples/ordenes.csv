@@ -1,0 +1,5 @@
+numero_orden,cliente_rut,cliente_email,cliente_nombre,activo_serial,activo_patente,tipo,prioridad,estado,diagnostico_inicial,diagnostico_tecnico,notas_internas,notas_cliente,fecha_ingreso,fecha_prometida,fecha_completado,fecha_entrega,subtotal_productos,subtotal_servicios,descuento,impuesto,total
+OT-2024-001,12.345.678-9,,,C02X123JLVDL,,reparacion,alta,completada,Notebook no enciende,Placa madre dañada - requiere reemplazo chip U3100,Reparación compleja,Se reemplazó chip y se realizó reballing,15/01/2024,20/01/2024,18/01/2024,19/01/2024,45000,85000,0,24700,154700
+OT-2024-002,76.543.210-K,,,,BBCC-12,mantenimiento,media,completada,Mantención 45.000 km,Cambio aceite filtros y revisión general,,Vehículo en buen estado general,20/01/2024,22/01/2024,21/01/2024,22/01/2024,35000,25000,5000,10450,65450
+OT-2024-003,,carlos.rod@gmail.com,,R5CR1234XYZ,,reparacion,media,en_reparacion,Pantalla rota,Reemplazo pantalla AMOLED,Pedir pantalla a proveedor,Equipo en reparación,25/01/2024,30/01/2024,,,,95000,35000,0,24700,154700
+OT-2024-004,15.666.777-8,,,,,diagnostico,baja,ingresada,Celular se apaga solo,,,Pendiente de revisión,28/01/2024,02/02/2024,,,0,15000,0,2850,17850

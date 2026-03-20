@@ -1,0 +1,5 @@
+nombre,apellido,razon_social,rut,email,telefono,telefono2,direccion,ciudad,region,tipo,notas
+Juan,Pérez,,12.345.678-9,juan.perez@email.com,+56912345678,,Av. Providencia 1234,Santiago,Metropolitana,persona,Cliente frecuente
+María,González,González y Cía Ltda,76.543.210-K,maria@gonzalezcia.cl,+56922334455,+56228887766,Los Leones 567,Santiago,Metropolitana,empresa,Flota de 5 vehículos
+Carlos,Rodríguez,,11.222.333-4,carlos.rod@gmail.com,+56933445566,,Calle Larga 890,Valparaíso,Valparaíso,persona,
+Ana,Martínez,,15.666.777-8,ana.martinez@outlook.com,+56944556677,,Av. Libertad 1234,Viña del Mar,Valparaíso,persona,Referida por Juan Pérez

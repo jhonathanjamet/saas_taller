@@ -1,0 +1,740 @@
+import { Injectable, NotFoundException, BadRequestException } from '@nestjs/common';
+import { PrismaService } from '../../infra/prisma/prisma.service';
+import { RequestContextService } from '../../common/request-context/request-context.service';
+import { Prisma, WorkOrderPriority, WorkOrderTaskStatus } from '@prisma/client';
+import { CreateWorkOrderDto } from './dto/create-work-order.dto';
+import { UpdateWorkOrderDto } from './dto/update-work-order.dto';
+
+@Injectable()
+export class WorkOrdersService {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly context: RequestContextService,
+  ) {}
+
+  private asObject(value: Prisma.JsonValue | null | undefined): Record<string, unknown> {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+    return value as Record<string, unknown>;
+  }
+
+  list() {
+    const tenantId = this.context.getTenantId();
+    return this.prisma.workOrder.findMany({
+      where: { deletedAt: null, deliveredAt: null, ...(tenantId ? { tenantId } : {}) },
+      include: {
+        status: { select: { id: true, name: true, code: true } },
+        assignee: { select: { id: true, firstName: true, lastName: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  history() {
+    const tenantId = this.context.getTenantId();
+    return this.prisma.workOrder.findMany({
+      where: { deletedAt: null, deliveredAt: { not: null }, ...(tenantId ? { tenantId } : {}) },
+      include: {
+        status: { select: { id: true, name: true, code: true } },
+        assignee: { select: { id: true, firstName: true, lastName: true } },
+      },
+      orderBy: { deliveredAt: 'desc' },
+    });
+  }
+
+  async get(id: string) {
+    const workOrder = await this.prisma.workOrder.findFirst({
+      where: { id, deletedAt: null },
+    });
+    if (!workOrder) throw new NotFoundException('OT no encontrada');
+    return workOrder;
+  }
+
+  async comments(id: string) {
+    const workOrder = await this.prisma.workOrder.findFirst({
+      where: { id, deletedAt: null },
+      select: { id: true },
+    });
+    if (!workOrder) throw new NotFoundException('OT no encontrada');
+
+    return this.prisma.workOrderComment.findMany({
+      where: { workOrderId: id },
+      include: {
+        user: { select: { id: true, firstName: true, lastName: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async addComment(id: string, dto: { content: string; isInternal?: boolean; kind?: string }) {
+    const workOrder = await this.prisma.workOrder.findFirst({
+      where: { id, deletedAt: null },
+      select: { id: true },
+    });
+    if (!workOrder) throw new NotFoundException('OT no encontrada');
+
+    const content =
+      dto.kind === 'diagnostic' ? `[DX] ${dto.content.trim()}` : dto.content.trim();
+    const userId = this.context.getUserId();
+    const tenantId = this.context.getTenantId();
+    if (!userId) throw new BadRequestException('Usuario requerido');
+    if (!tenantId) throw new BadRequestException('Tenant requerido');
+    return this.prisma.workOrderComment.create({
+      data: {
+        tenantId,
+        workOrderId: id,
+        content,
+        isInternal: dto.isInternal ?? false,
+        userId,
+      } as any,
+    });
+  }
+
+  async updateComment(id: string, commentId: string, dto: { content?: string; isInternal?: boolean }) {
+    const existing = await this.prisma.workOrderComment.findFirst({
+      where: { id: commentId, workOrderId: id },
+    });
+    if (!existing) throw new NotFoundException('Comentario no encontrado');
+
+    return this.prisma.workOrderComment.update({
+      where: { id: commentId },
+      data: {
+        ...(dto.content ? { content: dto.content } : {}),
+        ...(dto.isInternal !== undefined ? { isInternal: dto.isInternal } : {}),
+      },
+    });
+  }
+
+  async removeComment(id: string, commentId: string) {
+    const existing = await this.prisma.workOrderComment.findFirst({
+      where: { id: commentId, workOrderId: id },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundException('Comentario no encontrado');
+    await this.prisma.workOrderComment.delete({ where: { id: commentId } });
+    return { id: commentId };
+  }
+
+  async tasks(id: string) {
+    const workOrder = await this.prisma.workOrder.findFirst({
+      where: { id, deletedAt: null },
+      select: { id: true },
+    });
+    if (!workOrder) throw new NotFoundException('OT no encontrada');
+
+    return this.prisma.workOrderTask.findMany({
+      where: { workOrderId: id },
+      orderBy: [{ status: 'asc' }, { sortOrder: 'asc' }, { createdAt: 'asc' }],
+    });
+  }
+
+  async addTask(id: string, dto: { title: string; description?: string }) {
+    const workOrder = await this.prisma.workOrder.findFirst({
+      where: { id, deletedAt: null },
+      select: { id: true },
+    });
+    if (!workOrder) throw new NotFoundException('OT no encontrada');
+
+    const tenantId = this.context.getTenantId();
+    if (!tenantId) throw new BadRequestException('Tenant requerido');
+    return this.prisma.workOrderTask.create({
+      data: {
+        tenantId,
+        workOrderId: id,
+        title: dto.title,
+        description: dto.description,
+      },
+    });
+  }
+
+  async updateTask(
+    id: string,
+    taskId: string,
+    dto: { title?: string; description?: string; status?: WorkOrderTaskStatus },
+  ) {
+    const existing = await this.prisma.workOrderTask.findFirst({
+      where: { id: taskId, workOrderId: id },
+    });
+    if (!existing) throw new NotFoundException('Tarea no encontrada');
+
+    return this.prisma.workOrderTask.update({
+      where: { id: taskId },
+      data: {
+        ...(dto.title ? { title: dto.title } : {}),
+        ...(dto.description !== undefined ? { description: dto.description } : {}),
+        ...(dto.status ? { status: dto.status } : {}),
+        ...(dto.status === 'completed' ? { completedAt: new Date() } : {}),
+      },
+    });
+  }
+
+  async removeTask(id: string, taskId: string) {
+    const existing = await this.prisma.workOrderTask.findFirst({
+      where: { id: taskId, workOrderId: id },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundException('Tarea no encontrada');
+    await this.prisma.workOrderTask.delete({ where: { id: taskId } });
+    return { id: taskId };
+  }
+
+  async items(id: string) {
+    const workOrder = await this.prisma.workOrder.findFirst({
+      where: { id, deletedAt: null },
+      select: { id: true },
+    });
+    if (!workOrder) throw new NotFoundException('OT no encontrada');
+
+    return this.prisma.workOrderItem.findMany({
+      where: { workOrderId: id },
+      include: {
+        product: { select: { id: true, name: true } },
+        service: { select: { id: true, name: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  private computeTotals(
+    items: Array<{ itemType: string; totalPrice: number; totalCost: number }>,
+    discountAmount: number,
+    taxRate: number,
+  ) {
+    const subtotalProducts = items
+      .filter((i) => i.itemType === 'product')
+      .reduce((acc, item) => acc + (item.totalPrice || 0), 0);
+    const subtotalServices = items
+      .filter((i) => i.itemType === 'service')
+      .reduce((acc, item) => acc + (item.totalPrice || 0), 0);
+    const subtotalAdditional = items
+      .filter((i) => i.itemType === 'additional')
+      .reduce((acc, item) => acc + (item.totalPrice || 0), 0);
+    const internalCost = items.reduce((acc, item) => acc + (item.totalCost || 0), 0);
+    const subtotal = subtotalProducts + subtotalServices + subtotalAdditional;
+    const discount = Math.max(0, Number(discountAmount || 0));
+    const taxable = Math.max(0, subtotal - discount);
+    const rate = Number.isFinite(taxRate) && taxRate > 0 ? taxRate : 0;
+    const taxAmount = Math.round(taxable * rate);
+    const totalAmount = taxable + taxAmount;
+    return {
+      subtotalProducts,
+      subtotalServices,
+      totalAmount,
+      internalCost,
+      discountAmount: discount,
+      taxAmount,
+    };
+  }
+
+  private calcTotalsForItem(input: {
+    quantity: number;
+    unitCost: number;
+    unitPrice: number;
+    discountPercent?: number | null;
+  }) {
+    const qty = Number(input.quantity || 0);
+    const unitCost = Number(input.unitCost || 0);
+    const unitPrice = Number(input.unitPrice || 0);
+    const discount = Number(input.discountPercent || 0);
+    const totalCost = qty * unitCost;
+    const totalPrice = qty * unitPrice * (1 - discount / 100);
+    return { totalCost, totalPrice };
+  }
+
+  private async resolveTaxRate(id: string) {
+    void id;
+    // Regla operativa solicitada: no aplicar IVA global automático a la OT.
+    // El IVA se refleja solo cuando el usuario lo ingresa manualmente en el ítem.
+    return 0;
+  }
+
+  async addItem(
+    id: string,
+    dto: {
+      itemType: 'product' | 'service' | 'additional';
+      productId?: string;
+      serviceId?: string;
+      description?: string;
+      quantity: number;
+      unitCost: number;
+      unitPrice: number;
+      discountPercent?: number;
+    },
+  ) {
+    const workOrder = await this.prisma.workOrder.findFirst({
+      where: { id, deletedAt: null },
+      select: { id: true },
+    });
+    if (!workOrder) throw new NotFoundException('OT no encontrada');
+
+    if (dto.itemType === 'product' && !dto.productId && !dto.description) {
+      throw new BadRequestException('Producto o descripción requerida');
+    }
+    if (dto.itemType === 'service' && !dto.serviceId && !dto.description) {
+      throw new BadRequestException('Servicio o descripción requerida');
+    }
+    if (dto.itemType === 'additional' && !dto.description) {
+      throw new BadRequestException('Descripción requerida para adicional');
+    }
+
+    const totals = this.calcTotalsForItem(dto);
+    const tenantId = this.context.getTenantId();
+    if (!tenantId) throw new BadRequestException('Tenant requerido');
+    const created = await this.prisma.workOrderItem.create({
+      data: {
+        tenantId,
+        workOrderId: id,
+        itemType: dto.itemType,
+        productId: dto.productId,
+        serviceId: dto.serviceId,
+        description: dto.description,
+        quantity: dto.quantity,
+        unitCost: dto.unitCost,
+        unitPrice: dto.unitPrice,
+        discountPercent: dto.discountPercent || 0,
+        totalCost: totals.totalCost,
+        totalPrice: totals.totalPrice,
+        addedBy: this.context.getUserId(),
+      },
+    });
+
+    const items = await this.prisma.workOrderItem.findMany({ where: { workOrderId: id } });
+    const order = await this.prisma.workOrder.findFirst({ where: { id }, select: { discountAmount: true } });
+    const taxRate = await this.resolveTaxRate(id);
+    const aggregates = this.computeTotals(
+      items.map((item) => ({
+        itemType: item.itemType,
+        totalPrice: Number(item.totalPrice || 0),
+        totalCost: Number(item.totalCost || 0),
+      })),
+      Number(order?.discountAmount || 0),
+      taxRate,
+    );
+    await this.prisma.workOrder.update({
+      where: { id },
+      data: aggregates,
+    });
+
+    return created;
+  }
+
+  async updateItem(
+    id: string,
+    itemId: string,
+    dto: {
+      productId?: string;
+      serviceId?: string;
+      description?: string;
+      quantity?: number;
+      unitCost?: number;
+      unitPrice?: number;
+      discountPercent?: number;
+    },
+  ) {
+    const existing = await this.prisma.workOrderItem.findFirst({
+      where: { id: itemId, workOrderId: id },
+    });
+    if (!existing) throw new NotFoundException('Ítem no encontrado');
+
+    const totals = this.calcTotalsForItem({
+      quantity: dto.quantity ?? Number(existing.quantity),
+      unitCost: dto.unitCost ?? Number(existing.unitCost),
+      unitPrice: dto.unitPrice ?? Number(existing.unitPrice),
+      discountPercent: dto.discountPercent ?? Number(existing.discountPercent),
+    });
+
+    const updated = await this.prisma.workOrderItem.update({
+      where: { id: itemId },
+      data: {
+        ...(dto.productId !== undefined ? { productId: dto.productId } : {}),
+        ...(dto.serviceId !== undefined ? { serviceId: dto.serviceId } : {}),
+        ...(dto.description !== undefined ? { description: dto.description } : {}),
+        ...(dto.quantity !== undefined ? { quantity: dto.quantity } : {}),
+        ...(dto.unitCost !== undefined ? { unitCost: dto.unitCost } : {}),
+        ...(dto.unitPrice !== undefined ? { unitPrice: dto.unitPrice } : {}),
+        ...(dto.discountPercent !== undefined ? { discountPercent: dto.discountPercent } : {}),
+        totalCost: totals.totalCost,
+        totalPrice: totals.totalPrice,
+      },
+    });
+
+    const items = await this.prisma.workOrderItem.findMany({ where: { workOrderId: id } });
+    const order = await this.prisma.workOrder.findFirst({ where: { id }, select: { discountAmount: true } });
+    const taxRate = await this.resolveTaxRate(id);
+    const aggregates = this.computeTotals(
+      items.map((item) => ({
+        itemType: item.itemType,
+        totalPrice: Number(item.totalPrice || 0),
+        totalCost: Number(item.totalCost || 0),
+      })),
+      Number(order?.discountAmount || 0),
+      taxRate,
+    );
+    await this.prisma.workOrder.update({
+      where: { id },
+      data: aggregates,
+    });
+
+    return updated;
+  }
+
+  async removeItem(id: string, itemId: string) {
+    const existing = await this.prisma.workOrderItem.findFirst({
+      where: { id: itemId, workOrderId: id },
+      select: { id: true },
+    });
+    if (!existing) throw new NotFoundException('Ítem no encontrado');
+
+    await this.prisma.workOrderItem.delete({ where: { id: itemId } });
+
+    const items = await this.prisma.workOrderItem.findMany({ where: { workOrderId: id } });
+    const order = await this.prisma.workOrder.findFirst({ where: { id }, select: { discountAmount: true } });
+    const taxRate = await this.resolveTaxRate(id);
+    const aggregates = this.computeTotals(
+      items.map((item) => ({
+        itemType: item.itemType,
+        totalPrice: Number(item.totalPrice || 0),
+        totalCost: Number(item.totalCost || 0),
+      })),
+      Number(order?.discountAmount || 0),
+      taxRate,
+    );
+    await this.prisma.workOrder.update({
+      where: { id },
+      data: aggregates,
+    });
+
+    return { id: itemId };
+  }
+
+  create(dto: CreateWorkOrderDto) {
+    const tenantId = this.context.getTenantId();
+    if (!tenantId) throw new BadRequestException('Tenant requerido');
+    return this.prisma.$transaction(async (tx) => {
+      let orderNumber = dto.orderNumber?.trim();
+      if (!orderNumber) {
+        const tenant = await tx.tenant.findFirst({
+          where: { id: tenantId },
+          select: { settings: true },
+        });
+        const settings = this.asObject(tenant?.settings);
+        const workshopConfig = this.asObject(settings.workshopConfig as Prisma.JsonValue);
+        const configuredNext = Number((workshopConfig.proximaOrden as string) || 0);
+
+        const existing = await tx.workOrder.findMany({
+          where: { tenantId, branchId: dto.branchId },
+          select: { orderNumber: true },
+        });
+        let maxNumber = 0;
+        for (const item of existing) {
+          const digits = item.orderNumber?.match(/\d+/g)?.join('') || '';
+          const value = Number(digits);
+          if (Number.isFinite(value) && value > maxNumber) {
+            maxNumber = value;
+          }
+        }
+        const nextNumber = Math.max(maxNumber + 1, Number.isFinite(configuredNext) ? configuredNext : 1);
+        orderNumber = String(nextNumber);
+
+        const mergedWorkshopConfig = {
+          ...workshopConfig,
+          proximaOrden: String(nextNumber + 1),
+        };
+        await tx.tenant.update({
+          where: { id: tenantId },
+          data: {
+            settings: {
+              ...settings,
+              workshopConfig: mergedWorkshopConfig,
+            } as any,
+          },
+        });
+      }
+
+      return tx.workOrder.create({
+        data: {
+          ...dto,
+          priority: dto.priority as WorkOrderPriority | undefined,
+          tenantId,
+          orderNumber,
+        },
+      });
+    });
+  }
+
+  async update(id: string, dto: UpdateWorkOrderDto) {
+    const data: any = { ...dto };
+    if (dto.quoteApproved !== undefined) {
+      data.quoteApprovedAt = dto.quoteApproved ? new Date() : null;
+    }
+    await this.prisma.workOrder.updateMany({ where: { id }, data });
+    if (dto.discountAmount !== undefined) {
+      const items = await this.prisma.workOrderItem.findMany({ where: { workOrderId: id } });
+      const taxRate = await this.resolveTaxRate(id);
+      const aggregates = this.computeTotals(
+        items.map((item) => ({
+          itemType: item.itemType,
+          totalPrice: Number(item.totalPrice || 0),
+          totalCost: Number(item.totalCost || 0),
+        })),
+        Number(dto.discountAmount || 0),
+        taxRate,
+      );
+      await this.prisma.workOrder.update({
+        where: { id },
+        data: aggregates,
+      });
+    }
+    return this.get(id);
+  }
+
+  async remove(id: string) {
+    const tenantId = this.context.getTenantId();
+    const userId = this.context.getUserId();
+    if (!tenantId || !userId) {
+      throw new BadRequestException('Contexto inválido');
+    }
+    const tenant = await this.prisma.tenant.findFirst({
+      where: { id: tenantId },
+      select: { settings: true },
+    });
+    const settings = this.asObject(tenant?.settings);
+    const workshopConfig = this.asObject(settings.workshopConfig as Prisma.JsonValue);
+    const deletionMode = String(workshopConfig.eliminacionOrdenes || 'todos');
+
+    if (deletionMode === 'nadie') {
+      throw new BadRequestException('La eliminación de órdenes está deshabilitada');
+    }
+    if (deletionMode === 'solo_admin') {
+      const user = await this.prisma.user.findFirst({
+        where: { id: userId },
+        include: { role: { select: { code: true, name: true } } },
+      });
+      const roleCode = (user?.role?.code || '').toLowerCase();
+      const roleName = (user?.role?.name || '').toLowerCase();
+      const isAdmin =
+        roleCode.includes('admin') ||
+        roleCode.includes('owner') ||
+        roleName.includes('admin') ||
+        roleName.includes('due') ||
+        roleName.includes('owner');
+      if (!isAdmin) {
+        throw new BadRequestException('Solo administradores pueden eliminar órdenes');
+      }
+    }
+
+    await this.prisma.workOrder.updateMany({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
+    return { id };
+  }
+
+  async deliver(id: string) {
+    const tenantId = this.context.getTenantId();
+    const userId = this.context.getUserId();
+    if (!tenantId) throw new BadRequestException('Tenant requerido');
+
+    const existing = await this.prisma.workOrder.findFirst({
+      where: { id, tenantId, deletedAt: null },
+      select: { id: true, orderNumber: true, deliveredAt: true },
+    });
+    if (!existing) throw new NotFoundException('OT no encontrada');
+
+    if (existing.deliveredAt) {
+      return { id: existing.id, deliveredAt: existing.deliveredAt, alreadyDelivered: true };
+    }
+
+    const deliveredAt = new Date();
+    await this.prisma.workOrder.update({
+      where: { id: existing.id },
+      data: {
+        deliveredAt,
+        completedAt: deliveredAt,
+        orderType: 'salida',
+        ...(userId ? { updatedBy: userId } : {}),
+      },
+    });
+
+    if (userId) {
+      await this.prisma.workOrderComment.create({
+        data: {
+          tenantId,
+          workOrderId: existing.id,
+          userId,
+          isInternal: true,
+          content: `Orden entregada al cliente (${existing.orderNumber})`,
+        } as any,
+      });
+    }
+
+    return { id: existing.id, deliveredAt, delivered: true };
+  }
+
+  async getPublicByOrderNumber(orderNumber: string) {
+    const raw = (orderNumber || '').trim();
+    const digits = raw.match(/\d+/g)?.join('') || '';
+    const candidates = Array.from(
+      new Set(
+        [raw, digits, `IMP-${digits}`].filter((v) => v && v.length > 0),
+      ),
+    );
+
+    const where = digits
+      ? {
+          deletedAt: null,
+          OR: [
+            { orderNumber: { in: candidates } },
+            { orderNumber: { endsWith: digits } },
+          ],
+        }
+      : {
+          deletedAt: null,
+          orderNumber: raw,
+        };
+
+    const workOrder = await this.prisma.workOrder.findFirst({
+      where: where as any,
+      include: {
+        branch: { select: { id: true, name: true, phone: true, settings: true } },
+        customer: {
+          select: {
+            id: true,
+            firstName: true,
+            lastName: true,
+            legalName: true,
+            phone: true,
+            email: true,
+            taxId: true,
+          },
+        },
+        asset: {
+          select: {
+            id: true,
+            brand: true,
+            model: true,
+            serialNumber: true,
+            assetType: { select: { name: true } },
+          },
+        },
+        status: { select: { id: true, name: true, code: true } },
+        items: {
+          select: {
+            id: true,
+            itemType: true,
+            description: true,
+            quantity: true,
+            unitPrice: true,
+            totalPrice: true,
+            product: { select: { name: true } },
+            service: { select: { name: true } },
+          },
+          orderBy: { createdAt: 'asc' },
+        },
+      },
+    });
+
+    if (!workOrder) throw new NotFoundException('OT no encontrada');
+
+    const comments = await this.prisma.workOrderComment.findMany({
+      where: {
+        workOrderId: workOrder.id,
+        isInternal: false,
+      },
+      include: {
+        user: { select: { firstName: true, lastName: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+      take: 30,
+    });
+
+    const files = await this.prisma.fileAttachment.findMany({
+      where: {
+        entityType: 'work_order',
+        entityId: workOrder.id,
+      },
+      select: {
+        id: true,
+        fileName: true,
+        fileUrl: true,
+        mimeType: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const photos = await this.prisma.workOrderPhoto.findMany({
+      where: {
+        workOrderId: workOrder.id,
+        isVisibleToClient: true,
+      },
+      select: {
+        id: true,
+        fileUrl: true,
+        description: true,
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const attachments = [
+      ...photos.map((photo) => ({
+        id: photo.id,
+        fileName: photo.description || 'Imagen de orden',
+        fileUrl: photo.fileUrl,
+        mimeType: 'image/*' as string,
+      })),
+      ...files,
+    ].filter((item, index, array) => array.findIndex((x) => x.fileUrl === item.fileUrl) === index);
+
+    const branchSettings = (workOrder.branch?.settings || {}) as Record<string, any>;
+    const termsAndConditions =
+      branchSettings.termsAndConditions ||
+      branchSettings.terms ||
+      'Para retirar el equipo es indispensable presentar esta orden de trabajo. El equipo debe ser retirado dentro de 30 días.';
+
+    return {
+      id: workOrder.id,
+      orderNumber: workOrder.orderNumber,
+      createdAt: workOrder.createdAt,
+      promisedAt: workOrder.promisedAt,
+      priority: workOrder.priority,
+      orderType: workOrder.orderType,
+      status: workOrder.status,
+      initialDiagnosis: workOrder.initialDiagnosis,
+      technicalDiagnosis: workOrder.technicalDiagnosis,
+      clientNotes: workOrder.clientNotes,
+      totalAmount: Number(workOrder.totalAmount || 0),
+      discountAmount: Number(workOrder.discountAmount || 0),
+      taxAmount: Number(workOrder.taxAmount || 0),
+      subtotalProducts: Number(workOrder.subtotalProducts || 0),
+      subtotalServices: Number(workOrder.subtotalServices || 0),
+      quoteApproved: workOrder.quoteApproved,
+      branch: workOrder.branch,
+      customer: workOrder.customer,
+      asset: {
+        id: workOrder.asset?.id || null,
+        brand: workOrder.asset?.brand || null,
+        model: workOrder.asset?.model || null,
+        serialNumber: workOrder.asset?.serialNumber || null,
+        assetType: workOrder.asset?.assetType?.name || null,
+      },
+      items: workOrder.items.map((item) => ({
+        id: item.id,
+        itemType: item.itemType,
+        description: item.description || item.product?.name || item.service?.name || 'Ítem',
+        quantity: Number(item.quantity || 0),
+        unitPrice: Number(item.unitPrice || 0),
+        totalPrice: Number(item.totalPrice || 0),
+      })),
+      comments: comments.map((comment) => ({
+        id: comment.id,
+        content: comment.content,
+        createdAt: comment.createdAt,
+        userName: [comment.user?.firstName, comment.user?.lastName]
+          .filter(Boolean)
+          .join(' ')
+          .trim(),
+      })),
+      attachments,
+      termsAndConditions,
+    };
+  }
+}

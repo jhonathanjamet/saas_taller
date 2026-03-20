@@ -1,0 +1,6 @@
+nombre,sku,codigo_barras,descripcion,categoria,unidad,costo,precio,precio_mayorista,stock_minimo,stock_actual,ubicacion,impuesto
+Pantalla iPhone 14,REP-IP14-PANT,7890001234567,Pantalla OLED original iPhone 14,Repuestos,unidad,85000,145000,130000,3,10,Estante A1,19
+Batería Samsung S23,REP-SS23-BAT,7890001234568,Batería de reemplazo Samsung Galaxy S23,Repuestos,unidad,25000,45000,40000,5,15,Estante A2,19
+Pasta Térmica Arctic MX-4,INS-PASTA-MX4,,Pasta térmica 4g para procesadores,Insumos,unidad,5000,9500,,10,25,Estante B1,19
+Cable HDMI 2.1 2m,ACC-HDMI-2M,,Cable HDMI 2.1 de 2 metros,Accesorios,unidad,3500,7990,6500,5,20,Estante C1,19
+Aceite Motor 5W-30 1L,INS-ACEITE-5W30,,Aceite sintético 5W-30 para motor,Insumos,litro,6000,11990,10000,8,30,Bodega,19

@@ -1,0 +1,72 @@
+{
+  "name": "tallerhub",
+  "version": "0.1.0",
+  "description": "TallerHub — Plataforma SaaS para gestión de talleres y servicios técnicos",
+  "private": true,
+  "scripts": {
+    "dev": "npm run start:dev",
+    "dev:web": "npm --prefix web run dev",
+    "build:web": "npm --prefix web run build",
+    "start": "node dist/src/main.js",
+    "start:dev": "ts-node-dev --respawn --transpile-only src/main.ts",
+    "build": "tsc -p tsconfig.json",
+    "import:xlsx": "ts-node scripts/import-xlsx.ts",
+    "import:gestioo:fotos": "ts-node scripts/import-gestioo-photos.ts",
+    "import:gestioo:fotos:json": "ts-node scripts/import-gestioo-photos-json.ts",
+    "import:gestioo:comentarios": "ts-node scripts/import-gestioo-comments.ts",
+    "import:gestioo:comentarios:json": "ts-node scripts/import-gestioo-comments-json.ts",
+    "import:gestioo:detalles:json": "ts-node scripts/import-gestioo-order-details-json.ts",
+    "import:gestioo:presupuesto:json": "ts-node scripts/import-gestioo-quote-details-json.ts",
+    "recalc:work-orders:totals": "ts-node scripts/recalc-work-order-totals.ts",
+    "fetch:gestioo:comentarios": "node scripts/gestioo-fetch-comments.mjs",
+    "migrate:attachments:s3": "ts-node scripts/migrate-attachments-to-s3.ts",
+    "cleanup:attachments:duplicates": "ts-node scripts/cleanup-duplicate-attachments.ts",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev",
+    "prisma:migrate:prod": "prisma migrate deploy",
+    "prisma:seed": "ts-node --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\"}\" prisma/seed.ts",
+    "prisma:studio": "prisma studio",
+    "prisma:reset": "prisma migrate reset --force",
+    "prisma:format": "prisma format",
+    "prisma:validate": "prisma validate",
+    "prisma:db:push": "prisma db push"
+  },
+  "prisma": {
+    "seed": "ts-node --compiler-options \"{\\\"module\\\":\\\"CommonJS\\\"}\" prisma/seed.ts"
+  },
+  "dependencies": {
+    "@aws-sdk/client-s3": "^3.758.0",
+    "@nestjs/common": "^10.4.0",
+    "@nestjs/config": "^3.3.0",
+    "@nestjs/core": "^10.4.0",
+    "@nestjs/jwt": "^10.2.0",
+    "@nestjs/passport": "^10.0.3",
+    "@nestjs/platform-express": "^10.4.0",
+    "@nestjs/swagger": "^7.4.0",
+    "@prisma/client": "^5.22.0",
+    "bcrypt": "^5.1.1",
+    "class-transformer": "^0.5.1",
+    "class-validator": "^0.14.1",
+    "dotenv": "^16.4.7",
+    "passport": "^0.7.0",
+    "passport-jwt": "^4.0.1",
+    "reflect-metadata": "^0.2.2",
+    "rxjs": "^7.8.1",
+    "uuid": "^10.0.0",
+    "whatsapp-web.js": "^1.34.6",
+    "xlsx": "^0.18.5"
+  },
+  "devDependencies": {
+    "@types/bcrypt": "^5.0.2",
+    "@types/node": "^22.9.0",
+    "@types/passport-jwt": "^4.0.1",
+    "playwright": "^1.58.2",
+    "prisma": "^5.22.0",
+    "ts-node": "^10.9.2",
+    "ts-node-dev": "^2.0.0",
+    "typescript": "^5.6.3"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}

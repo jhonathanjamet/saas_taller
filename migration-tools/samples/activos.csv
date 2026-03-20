@@ -1,0 +1,5 @@
+cliente_rut,cliente_email,cliente_nombre,tipo,marca,modelo,serial,patente,anio,color,kilometraje,accesorios,condicion,notas
+12.345.678-9,,,,Apple,MacBook Pro 14,C02X123JLVDL,,,Gris Espacial,,Cargador USB-C,Buen estado,Pantalla con leve marca
+76.543.210-K,,,Automóvil,Toyota,Hilux,,BBCC-12,2022,Blanco,45000,Kit herramientas,Buen estado,Vehículo de flota
+76.543.210-K,,,Automóvil,Hyundai,Tucson,,DDEE-34,2021,Negro,62000,,Regular,Parachoques con rayas
+,carlos.rod@gmail.com,,Celular,Samsung,Galaxy S23,R5CR1234XYZ,,2023,Negro,,Funda y cargador,Excelente,

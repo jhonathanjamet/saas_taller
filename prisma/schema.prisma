@@ -1,0 +1,1359 @@
+// =============================================================================
+// TallerHub — Schema Prisma Completo
+// Plataforma SaaS Multi-Tenant para Gestión de Talleres y Servicios Técnicos
+// =============================================================================
+// 38 entidades | PostgreSQL | Multi-tenant con tenant_id
+// Convenciones:
+//   - UUID como PK en todas las tablas
+//   - tenant_id en todas las entidades (excepto globales)
+//   - Soft delete (deletedAt) donde corresponda
+//   - Timestamps (createdAt, updatedAt) en todas las tablas
+//   - Auditoría (createdBy, updatedBy) en entidades clave
+//   - Índices compuestos liderados por tenant_id
+// =============================================================================
+
+generator client {
+  provider        = "prisma-client-js"
+  previewFeatures = ["fullTextSearch"]
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// =============================================================================
+// ENUMS
+// =============================================================================
+
+enum TenantStatus {
+  active
+  suspended
+  trial
+  cancelled
+}
+
+enum CustomerType {
+  person
+  company
+}
+
+enum MileageUnit {
+  km
+  hours
+  cycles
+  none
+}
+
+enum WorkOrderPriority {
+  low
+  medium
+  high
+  urgent
+}
+
+enum WorkOrderTaskStatus {
+  pending
+  in_progress
+  completed
+  skipped
+}
+
+enum WorkOrderPhotoPhase {
+  reception
+  diagnosis
+  repair
+  delivery
+}
+
+enum SignatureType {
+  reception
+  delivery
+  approval
+}
+
+enum QuoteStatus {
+  draft
+  sent
+  viewed
+  approved
+  rejected
+  expired
+  converted
+}
+
+enum QuoteItemType {
+  product
+  service
+  custom
+}
+
+enum InventoryMovementType {
+  purchase_in
+  work_order_out
+  adjustment
+  transfer_in
+  transfer_out
+  return_in
+  initial
+}
+
+enum PurchaseOrderStatus {
+  draft
+  sent
+  partially_received
+  received
+  cancelled
+}
+
+enum PreventiveFrequencyType {
+  days
+  weeks
+  months
+  kilometers
+  hours
+}
+
+enum PreventiveExecutionStatus {
+  scheduled
+  overdue
+  in_progress
+  completed
+  skipped
+}
+
+enum NotificationChannel {
+  email
+  push
+  sms
+  whatsapp
+}
+
+enum NotificationStatus {
+  queued
+  sent
+  delivered
+  failed
+  bounced
+}
+
+enum WebhookDeliveryStatus {
+  pending
+  success
+  failed
+}
+
+enum MobileSyncType {
+  full
+  incremental
+}
+
+enum MobileSyncDirection {
+  upload
+  download
+}
+
+enum MobileSyncStatus {
+  started
+  completed
+  failed
+}
+
+// =============================================================================
+// 1. PLATAFORMA Y MULTI-TENANCY
+// =============================================================================
+
+/// Planes de suscripción disponibles en la plataforma (tabla global)
+model SubscriptionPlan {
+  id             String   @id @default(uuid()) @db.Uuid
+  name           String   @db.VarChar(100)
+  code           String   @unique @db.VarChar(50) // starter, professional, business, enterprise
+  maxUsers       Int?     @map("max_users") // NULL = ilimitado
+  maxBranches    Int?     @map("max_branches")
+  enabledModules Json?    @map("enabled_modules") @db.JsonB // ["clients","work_orders",...]
+  maxStorageGb   Int?     @map("max_storage_gb")
+  priceMonthly   Decimal  @map("price_monthly") @db.Decimal(10, 2)
+  priceYearly    Decimal? @map("price_yearly") @db.Decimal(10, 2)
+  currency       String   @default("USD") @db.VarChar(3)
+  isActive       Boolean  @default(true) @map("is_active")
+  createdAt      DateTime @default(now()) @map("created_at")
+  updatedAt      DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  tenants Tenant[]
+
+  @@map("subscription_plan")
+}
+
+/// Empresa/Taller registrado en la plataforma (tenant)
+model Tenant {
+  id           String       @id @default(uuid()) @db.Uuid
+  name         String       @db.VarChar(255) // Nombre comercial
+  slug         String       @unique @db.VarChar(100) // URL-safe identifier
+  legalName    String?      @map("legal_name") @db.VarChar(255)
+  taxId        String?      @map("tax_id") @db.VarChar(50) // RUT/NIF
+  email        String       @db.VarChar(255)
+  phone        String?      @db.VarChar(50)
+  address      String?      @db.Text
+  country      String       @default("CL") @db.VarChar(3) // ISO 3166-1 alpha-3
+  currency     String       @default("CLP") @db.VarChar(3)
+  timezone     String       @default("America/Santiago") @db.VarChar(50)
+  logoUrl      String?      @map("logo_url") @db.VarChar(500)
+  primaryColor String?      @default("#2563EB") @map("primary_color") @db.VarChar(7)
+  planId       String       @map("plan_id") @db.Uuid
+  status       TenantStatus @default(trial)
+  trialEndsAt  DateTime?    @map("trial_ends_at")
+  settings     Json?        @db.JsonB // Configuraciones generales (impuestos, numeración, etc.)
+  createdAt    DateTime     @default(now()) @map("created_at")
+  updatedAt    DateTime     @updatedAt @map("updated_at")
+
+  // Relaciones
+  plan                  SubscriptionPlan       @relation(fields: [planId], references: [id])
+  branches              Branch[]
+  users                 User[]
+  roles                 Role[]
+  customers             Customer[]
+  customerContacts      CustomerContact[]
+  customerPortalAccess  CustomerPortalAccess[]
+  assets                Asset[]
+  assetTypes            AssetType[]
+  assetPhotos           AssetPhoto[]
+  workOrders            WorkOrder[]
+  workOrderStatuses     WorkOrderStatus[]
+  workOrderTasks        WorkOrderTask[]
+  workOrderPhotos       WorkOrderPhoto[]
+  workOrderComments     WorkOrderComment[]
+  workOrderSignatures   WorkOrderSignature[]
+  workOrderItems        WorkOrderItem[]
+  quotes                Quote[]
+  quoteItems            QuoteItem[]
+  products              Product[]
+  productCategories     ProductCategory[]
+  inventories           Inventory[]
+  inventoryMovements    InventoryMovement[]
+  services              Service[]
+  suppliers             Supplier[]
+  purchaseOrders        PurchaseOrder[]
+  purchaseOrderItems    PurchaseOrderItem[]
+  preventivePlans       PreventivePlan[]
+  preventiveExecutions  PreventiveExecution[]
+  notificationTemplates NotificationTemplate[]
+  notificationLogs      NotificationLog[]
+  auditLogs             AuditLog[]
+  fileAttachments       FileAttachment[]
+  s3Config              S3Config?
+  webhookEndpoints      WebhookEndpoint[]
+  mobileSyncLogs        MobileSyncLog[]
+
+  @@index([status])
+  @@map("tenant")
+}
+
+/// Sucursal de un tenant
+model Branch {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  name      String   @db.VarChar(255)
+  code      String   @db.VarChar(20) // Código corto para numeración
+  address   String?  @db.Text
+  phone     String?  @db.VarChar(50)
+  email     String?  @db.VarChar(255)
+  latitude  Decimal? @db.Decimal(10, 8)
+  longitude Decimal? @db.Decimal(11, 8)
+  isMain    Boolean  @default(false) @map("is_main")
+  isActive  Boolean  @default(true) @map("is_active")
+  settings  Json?    @db.JsonB
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  userBranches   UserBranch[]
+  workOrders     WorkOrder[]
+  quotes         Quote[]
+  inventories    Inventory[]
+  purchaseOrders PurchaseOrder[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, isActive])
+  @@map("branch")
+}
+
+// =============================================================================
+// 2. USUARIOS Y PERMISOS (RBAC)
+// =============================================================================
+
+/// Usuario del sistema
+model User {
+  id               String    @id @default(uuid()) @db.Uuid
+  tenantId         String?   @map("tenant_id") @db.Uuid // NULL para superadmin plataforma
+  email            String    @unique @db.VarChar(255)
+  passwordHash     String    @map("password_hash") @db.VarChar(255)
+  firstName        String    @map("first_name") @db.VarChar(100)
+  lastName         String    @map("last_name") @db.VarChar(100)
+  phone            String?   @db.VarChar(50)
+  avatarUrl        String?   @map("avatar_url") @db.VarChar(500)
+  roleId           String    @map("role_id") @db.Uuid
+  isActive         Boolean   @default(true) @map("is_active")
+  lastLoginAt      DateTime? @map("last_login_at")
+  emailVerifiedAt  DateTime? @map("email_verified_at")
+  refreshTokenHash String?   @map("refresh_token_hash") @db.VarChar(255)
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
+
+  // Relaciones
+  tenant       Tenant?      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  role         Role         @relation(fields: [roleId], references: [id])
+  userBranches UserBranch[]
+
+  // Relaciones inversas (creador/actualizador)
+  createdCustomers  Customer[]  @relation("CustomerCreatedBy")
+  updatedCustomers  Customer[]  @relation("CustomerUpdatedBy")
+  createdAssets     Asset[]     @relation("AssetCreatedBy")
+  createdWorkOrders WorkOrder[] @relation("WorkOrderCreatedBy")
+  updatedWorkOrders WorkOrder[] @relation("WorkOrderUpdatedBy")
+  assignedOrders    WorkOrder[] @relation("WorkOrderAssignedTo")
+  receivedOrders    WorkOrder[] @relation("WorkOrderReceivedBy")
+  createdQuotes     Quote[]     @relation("QuoteCreatedBy")
+  updatedQuotes     Quote[]     @relation("QuoteUpdatedBy")
+
+  // Relaciones de sub-entidades
+  workOrderComments  WorkOrderComment[]
+  workOrderItems     WorkOrderItem[]     @relation("WorkOrderItemAddedBy")
+  assetPhotos        AssetPhoto[]
+  workOrderPhotos    WorkOrderPhoto[]
+  purchaseOrders     PurchaseOrder[]
+  inventoryMovements InventoryMovement[]
+  auditLogs          AuditLog[]
+  fileAttachments    FileAttachment[]
+  mobileSyncLogs     MobileSyncLog[]
+
+  @@index([tenantId, isActive])
+  @@index([tenantId, roleId])
+  @@map("user")
+}
+
+/// Rol del sistema (puede ser de plataforma o de un tenant específico)
+model Role {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String?  @map("tenant_id") @db.Uuid // NULL para roles de plataforma
+  name        String   @db.VarChar(100)
+  code        String   @db.VarChar(50) // owner, admin, technician, etc.
+  description String?  @db.Text
+  isSystem    Boolean  @default(false) @map("is_system") // No editable/eliminable
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  tenant          Tenant?          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  users           User[]
+  rolePermissions RolePermission[]
+
+  @@unique([tenantId, code])
+  @@map("role")
+}
+
+/// Permiso individual del sistema (tabla global)
+model Permission {
+  id          String   @id @default(uuid()) @db.Uuid
+  module      String   @db.VarChar(50) // clients, work_orders, quotes, etc.
+  action      String   @db.VarChar(50) // create, read, update, delete, export, etc.
+  description String?  @db.VarChar(255)
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  // Relaciones
+  rolePermissions RolePermission[]
+
+  @@unique([module, action])
+  @@map("permission")
+}
+
+/// Tabla pivot: asignación de permisos a roles
+model RolePermission {
+  id           String @id @default(uuid()) @db.Uuid
+  roleId       String @map("role_id") @db.Uuid
+  permissionId String @map("permission_id") @db.Uuid
+  conditions   Json?  @db.JsonB // {"own_only": true, "cost_visible": false, "max_discount": 15}
+
+  // Relaciones
+  role       Role       @relation(fields: [roleId], references: [id], onDelete: Cascade)
+  permission Permission @relation(fields: [permissionId], references: [id], onDelete: Cascade)
+
+  @@unique([roleId, permissionId])
+  @@map("role_permission")
+}
+
+/// Tabla pivot: asignación de usuarios a sucursales
+model UserBranch {
+  id        String  @id @default(uuid()) @db.Uuid
+  userId    String  @map("user_id") @db.Uuid
+  branchId  String  @map("branch_id") @db.Uuid
+  isDefault Boolean @default(false) @map("is_default")
+
+  // Relaciones
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+  branch Branch @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, branchId])
+  @@map("user_branch")
+}
+
+// =============================================================================
+// 3. CLIENTES
+// =============================================================================
+
+/// Cliente del taller (persona o empresa)
+model Customer {
+  id             String       @id @default(uuid()) @db.Uuid
+  tenantId       String       @map("tenant_id") @db.Uuid
+  type           CustomerType @default(person)
+  firstName      String       @map("first_name") @db.VarChar(100)
+  lastName       String?      @map("last_name") @db.VarChar(100)
+  legalName      String?      @map("legal_name") @db.VarChar(255) // Razón social (empresa)
+  taxId          String?      @map("tax_id") @db.VarChar(50) // RUT/NIF
+  email          String?      @db.VarChar(255)
+  phone          String?      @db.VarChar(50)
+  secondaryPhone String?      @map("secondary_phone") @db.VarChar(50)
+  address        String?      @db.Text
+  city           String?      @db.VarChar(100)
+  state          String?      @db.VarChar(100) // Región/Estado
+  zipCode        String?      @map("zip_code") @db.VarChar(20)
+  country        String?      @db.VarChar(3)
+  tags           Json?        @db.JsonB // ["vip", "frecuente", ...]
+  notes          String?      @db.Text
+  source         String?      @db.VarChar(50) // Canal de captación
+  isActive       Boolean      @default(true) @map("is_active")
+  createdBy      String?      @map("created_by") @db.Uuid
+  updatedBy      String?      @map("updated_by") @db.Uuid
+  createdAt      DateTime     @default(now()) @map("created_at")
+  updatedAt      DateTime     @updatedAt @map("updated_at")
+  deletedAt      DateTime?    @map("deleted_at")
+
+  // Relaciones
+  tenant       Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  creator      User?                 @relation("CustomerCreatedBy", fields: [createdBy], references: [id])
+  updater      User?                 @relation("CustomerUpdatedBy", fields: [updatedBy], references: [id])
+  contacts     CustomerContact[]
+  portalAccess CustomerPortalAccess?
+  assets       Asset[]
+  workOrders   WorkOrder[]
+  quotes       Quote[]
+
+  @@index([tenantId, isActive])
+  @@index([tenantId, taxId])
+  @@index([tenantId, email])
+  @@index([tenantId, firstName, lastName])
+  @@map("customer")
+}
+
+/// Contacto adicional de un cliente
+model CustomerContact {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  customerId String   @map("customer_id") @db.Uuid
+  name       String   @db.VarChar(200)
+  role       String?  @db.VarChar(100) // Cargo / relación
+  email      String?  @db.VarChar(255)
+  phone      String?  @db.VarChar(50)
+  isPrimary  Boolean  @default(false) @map("is_primary")
+  createdAt  DateTime @default(now()) @map("created_at")
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, customerId])
+  @@map("customer_contact")
+}
+
+/// Acceso al portal de clientes
+model CustomerPortalAccess {
+  id           String    @id @default(uuid()) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  customerId   String    @unique @map("customer_id") @db.Uuid // 1:1
+  accessCode   String    @map("access_code") @db.VarChar(20)
+  passwordHash String?   @map("password_hash") @db.VarChar(255)
+  isActive     Boolean   @default(true) @map("is_active")
+  lastAccessAt DateTime? @map("last_access_at")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+
+  // Relaciones
+  tenant   Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer Customer @relation(fields: [customerId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, accessCode])
+  @@map("customer_portal_access")
+}
+
+// =============================================================================
+// 4. ACTIVOS / EQUIPOS / VEHÍCULOS
+// =============================================================================
+
+/// Tipo de activo configurable por tenant
+model AssetType {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  name         String   @db.VarChar(100) // Automóvil, Notebook, Consola, etc.
+  icon         String?  @db.VarChar(50)
+  fieldsSchema Json?    @map("fields_schema") @db.JsonB // Campos personalizados
+  isActive     Boolean  @default(true) @map("is_active")
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  tenant Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  assets Asset[]
+
+  @@index([tenantId, isActive])
+  @@map("asset_type")
+}
+
+/// Activo/equipo/vehículo de un cliente
+model Asset {
+  id              String      @id @default(uuid()) @db.Uuid
+  tenantId        String      @map("tenant_id") @db.Uuid
+  customerId      String      @map("customer_id") @db.Uuid
+  assetTypeId     String?     @map("asset_type_id") @db.Uuid
+  brand           String?     @db.VarChar(100)
+  model           String?     @db.VarChar(100)
+  serialNumber    String?     @map("serial_number") @db.VarChar(100)
+  licensePlate    String?     @map("license_plate") @db.VarChar(20)
+  year            Int?
+  color           String?     @db.VarChar(50)
+  mileage         Decimal?    @db.Decimal(12, 2) // Kilometraje / horas de uso
+  mileageUnit     MileageUnit @default(none) @map("mileage_unit")
+  accessories     String?     @db.Text
+  visualCondition String?     @map("visual_condition") @db.Text
+  qrCode          String?     @map("qr_code") @db.VarChar(100) // Código QR único
+  customFields    Json?       @map("custom_fields") @db.JsonB
+  notes           String?     @db.Text
+  isActive        Boolean     @default(true) @map("is_active")
+  createdBy       String?     @map("created_by") @db.Uuid
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+  deletedAt       DateTime?   @map("deleted_at")
+
+  // Relaciones
+  tenant          Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  customer        Customer         @relation(fields: [customerId], references: [id], onDelete: Cascade)
+  assetType       AssetType?       @relation(fields: [assetTypeId], references: [id])
+  creator         User?            @relation("AssetCreatedBy", fields: [createdBy], references: [id])
+  photos          AssetPhoto[]
+  workOrders      WorkOrder[]
+  preventivePlans PreventivePlan[]
+
+  @@unique([tenantId, qrCode])
+  @@index([tenantId, customerId])
+  @@index([tenantId, serialNumber])
+  @@index([tenantId, licensePlate])
+  @@map("asset")
+}
+
+/// Foto de un activo
+model AssetPhoto {
+  id           String   @id @default(uuid()) @db.Uuid
+  tenantId     String   @map("tenant_id") @db.Uuid
+  assetId      String   @map("asset_id") @db.Uuid
+  fileUrl      String   @map("file_url") @db.VarChar(500)
+  thumbnailUrl String?  @map("thumbnail_url") @db.VarChar(500)
+  description  String?  @db.VarChar(255)
+  sortOrder    Int      @default(0) @map("sort_order")
+  createdBy    String?  @map("created_by") @db.Uuid
+  createdAt    DateTime @default(now()) @map("created_at")
+
+  // Relaciones
+  tenant  Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  asset   Asset  @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  creator User?  @relation(fields: [createdBy], references: [id])
+
+  @@index([tenantId, assetId])
+  @@map("asset_photo")
+}
+
+// =============================================================================
+// 5. ÓRDENES DE TRABAJO (NÚCLEO DEL SISTEMA)
+// =============================================================================
+
+/// Estado configurable de una orden de trabajo
+model WorkOrderStatus {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  name      String   @db.VarChar(100)
+  code      String   @db.VarChar(50) // ingresada, en_revision, etc.
+  color     String   @default("#6B7280") @db.VarChar(7) // HEX
+  sortOrder Int      @default(0) @map("sort_order")
+  isInitial Boolean  @default(false) @map("is_initial") // Estado inicial por defecto
+  isFinal   Boolean  @default(false) @map("is_final") // Estado de cierre
+  isSystem  Boolean  @default(false) @map("is_system") // No eliminable
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  tenant     Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workOrders WorkOrder[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, sortOrder])
+  @@map("work_order_status")
+}
+
+/// Orden de trabajo — entidad central del sistema
+model WorkOrder {
+  id                 String            @id @default(uuid()) @db.Uuid
+  tenantId           String            @map("tenant_id") @db.Uuid
+  branchId           String            @map("branch_id") @db.Uuid
+  orderNumber        String            @map("order_number") @db.VarChar(30) // SUC01-000123
+  customerId         String            @map("customer_id") @db.Uuid
+  assetId            String?           @map("asset_id") @db.Uuid
+  statusId           String            @map("status_id") @db.Uuid
+  priority           WorkOrderPriority @default(medium)
+  orderType          String?           @map("order_type") @db.VarChar(50) // reparación, mantenimiento, diagnóstico
+  channel            String?           @db.VarChar(50) // presencial, teléfono, web, whatsapp
+  assignedTo         String?           @map("assigned_to") @db.Uuid
+  receivedBy         String?           @map("received_by") @db.Uuid
+  initialDiagnosis   String?           @map("initial_diagnosis") @db.Text
+  technicalDiagnosis String?           @map("technical_diagnosis") @db.Text
+  internalNotes      String?           @map("internal_notes") @db.Text
+  clientNotes        String?           @map("client_notes") @db.Text
+  quoteApproved      Boolean           @default(false) @map("quote_approved")
+  quoteApprovedAt    DateTime?         @map("quote_approved_at")
+  warrantyTerms      String?           @map("warranty_terms") @db.Text
+  warrantyUntil      DateTime?         @map("warranty_until") @db.Date
+  receivedAt         DateTime?         @map("received_at")
+  promisedAt         DateTime?         @map("promised_at")
+  startedAt          DateTime?         @map("started_at")
+  completedAt        DateTime?         @map("completed_at")
+  deliveredAt        DateTime?         @map("delivered_at")
+  cancelledAt        DateTime?         @map("cancelled_at")
+  cancellationReason String?           @map("cancellation_reason") @db.Text
+  // Montos
+  subtotalProducts   Decimal           @default(0) @map("subtotal_products") @db.Decimal(12, 2)
+  subtotalServices   Decimal           @default(0) @map("subtotal_services") @db.Decimal(12, 2)
+  discountAmount     Decimal           @default(0) @map("discount_amount") @db.Decimal(12, 2)
+  taxAmount          Decimal           @default(0) @map("tax_amount") @db.Decimal(12, 2)
+  totalAmount        Decimal           @default(0) @map("total_amount") @db.Decimal(12, 2)
+  internalCost       Decimal           @default(0) @map("internal_cost") @db.Decimal(12, 2)
+  profitMargin       Decimal?          @map("profit_margin") @db.Decimal(5, 2)
+  // Relaciones opcionales
+  quoteId            String?           @map("quote_id") @db.Uuid
+  parentOrderId      String?           @map("parent_order_id") @db.Uuid // Para garantías/reaperturas
+  // Servicio a domicilio
+  isFieldService     Boolean           @default(false) @map("is_field_service")
+  fieldAddress       String?           @map("field_address") @db.Text
+  fieldLatitude      Decimal?          @map("field_latitude") @db.Decimal(10, 8)
+  fieldLongitude     Decimal?          @map("field_longitude") @db.Decimal(11, 8)
+  fieldScheduledAt   DateTime?         @map("field_scheduled_at")
+  // Auditoría
+  createdBy          String?           @map("created_by") @db.Uuid
+  updatedBy          String?           @map("updated_by") @db.Uuid
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+  deletedAt          DateTime?         @map("deleted_at")
+
+  // Relaciones
+  tenant      Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch      Branch          @relation(fields: [branchId], references: [id])
+  customer    Customer        @relation(fields: [customerId], references: [id])
+  asset       Asset?          @relation(fields: [assetId], references: [id])
+  status      WorkOrderStatus @relation(fields: [statusId], references: [id])
+  assignee    User?           @relation("WorkOrderAssignedTo", fields: [assignedTo], references: [id])
+  receiver    User?           @relation("WorkOrderReceivedBy", fields: [receivedBy], references: [id])
+  creator     User?           @relation("WorkOrderCreatedBy", fields: [createdBy], references: [id])
+  updater     User?           @relation("WorkOrderUpdatedBy", fields: [updatedBy], references: [id])
+  parentOrder WorkOrder?      @relation("WorkOrderParent", fields: [parentOrderId], references: [id])
+  childOrders WorkOrder[]     @relation("WorkOrderParent")
+
+  tasks                WorkOrderTask[]
+  photos               WorkOrderPhoto[]
+  comments             WorkOrderComment[]
+  signatures           WorkOrderSignature[]
+  items                WorkOrderItem[]
+  quotesFromOrder      Quote[]               @relation("QuoteFromWorkOrder")
+  preventiveExecutions PreventiveExecution[]
+
+  @@unique([tenantId, orderNumber])
+  @@index([tenantId, branchId, statusId])
+  @@index([tenantId, customerId])
+  @@index([tenantId, assetId])
+  @@index([tenantId, assignedTo])
+  @@index([tenantId, createdAt])
+  @@index([tenantId, promisedAt])
+  @@index([tenantId, isFieldService])
+  @@map("work_order")
+}
+
+/// Tarea dentro de una orden de trabajo
+model WorkOrderTask {
+  id             String              @id @default(uuid()) @db.Uuid
+  tenantId       String              @map("tenant_id") @db.Uuid
+  workOrderId    String              @map("work_order_id") @db.Uuid
+  title          String              @db.VarChar(255)
+  description    String?             @db.Text
+  assignedTo     String?             @map("assigned_to") @db.Uuid
+  estimatedHours Decimal?            @map("estimated_hours") @db.Decimal(5, 2)
+  actualHours    Decimal?            @map("actual_hours") @db.Decimal(5, 2)
+  startedAt      DateTime?           @map("started_at")
+  completedAt    DateTime?           @map("completed_at")
+  status         WorkOrderTaskStatus @default(pending)
+  sortOrder      Int                 @default(0) @map("sort_order")
+  createdAt      DateTime            @default(now()) @map("created_at")
+  updatedAt      DateTime            @updatedAt @map("updated_at")
+
+  // Relaciones
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workOrder WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, workOrderId])
+  @@map("work_order_task")
+}
+
+/// Ítem de una orden (repuesto o servicio usado)
+/// Unifica WorkOrderProduct y WorkOrderService en una sola tabla
+model WorkOrderItem {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  workOrderId     String   @map("work_order_id") @db.Uuid
+  itemType        String   @map("item_type") @db.VarChar(20) // "product" o "service"
+  productId       String?  @map("product_id") @db.Uuid
+  serviceId       String?  @map("service_id") @db.Uuid
+  description     String?  @db.VarChar(500) // Descripción personalizada
+  quantity        Decimal  @default(1) @db.Decimal(10, 2)
+  unitCost        Decimal  @default(0) @map("unit_cost") @db.Decimal(12, 2)
+  unitPrice       Decimal  @default(0) @map("unit_price") @db.Decimal(12, 2)
+  discountPercent Decimal  @default(0) @map("discount_percent") @db.Decimal(5, 2)
+  totalCost       Decimal  @default(0) @map("total_cost") @db.Decimal(12, 2)
+  totalPrice      Decimal  @default(0) @map("total_price") @db.Decimal(12, 2)
+  notes           String?  @db.Text
+  addedBy         String?  @map("added_by") @db.Uuid
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workOrder WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  product   Product?  @relation(fields: [productId], references: [id])
+  service   Service?  @relation(fields: [serviceId], references: [id])
+  addedUser User?     @relation("WorkOrderItemAddedBy", fields: [addedBy], references: [id])
+
+  @@index([tenantId, workOrderId])
+  @@index([tenantId, productId])
+  @@index([tenantId, serviceId])
+  @@map("work_order_item")
+}
+
+/// Foto de una orden de trabajo
+model WorkOrderPhoto {
+  id                String              @id @default(uuid()) @db.Uuid
+  tenantId          String              @map("tenant_id") @db.Uuid
+  workOrderId       String              @map("work_order_id") @db.Uuid
+  fileUrl           String              @map("file_url") @db.VarChar(500)
+  thumbnailUrl      String?             @map("thumbnail_url") @db.VarChar(500)
+  description       String?             @db.VarChar(255)
+  phase             WorkOrderPhotoPhase @default(reception)
+  isVisibleToClient Boolean             @default(true) @map("is_visible_to_client")
+  sortOrder         Int                 @default(0) @map("sort_order")
+  uploadedBy        String?             @map("uploaded_by") @db.Uuid
+  createdAt         DateTime            @default(now()) @map("created_at")
+
+  // Relaciones
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workOrder WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  uploader  User?     @relation(fields: [uploadedBy], references: [id])
+
+  @@index([tenantId, workOrderId])
+  @@index([tenantId, workOrderId, isVisibleToClient])
+  @@map("work_order_photo")
+}
+
+/// Comentario en una orden de trabajo
+model WorkOrderComment {
+  id          String   @id @default(uuid()) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  workOrderId String   @map("work_order_id") @db.Uuid
+  userId      String   @map("user_id") @db.Uuid
+  content     String   @db.Text
+  isInternal  Boolean  @default(true) @map("is_internal") // Solo visible para el equipo
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workOrder WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+  user      User      @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, workOrderId, createdAt])
+  @@map("work_order_comment")
+}
+
+/// Firma digital en una orden de trabajo
+model WorkOrderSignature {
+  id             String        @id @default(uuid()) @db.Uuid
+  tenantId       String        @map("tenant_id") @db.Uuid
+  workOrderId    String        @map("work_order_id") @db.Uuid
+  type           SignatureType
+  signerName     String        @map("signer_name") @db.VarChar(200)
+  signerIdNumber String?       @map("signer_id_number") @db.VarChar(50) // RUT/DNI
+  signatureUrl   String        @map("signature_url") @db.VarChar(500) // Imagen firma en S3
+  signedAt       DateTime      @map("signed_at")
+  ipAddress      String?       @map("ip_address") @db.VarChar(45)
+  deviceInfo     String?       @map("device_info") @db.VarChar(255)
+  createdAt      DateTime      @default(now()) @map("created_at")
+
+  // Relaciones
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workOrder WorkOrder @relation(fields: [workOrderId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, workOrderId])
+  @@map("work_order_signature")
+}
+
+// =============================================================================
+// 6. COTIZACIONES / PRESUPUESTOS
+// =============================================================================
+
+/// Cotización o presupuesto
+model Quote {
+  id              String      @id @default(uuid()) @db.Uuid
+  tenantId        String      @map("tenant_id") @db.Uuid
+  branchId        String      @map("branch_id") @db.Uuid
+  quoteNumber     String      @map("quote_number") @db.VarChar(30)
+  customerId      String      @map("customer_id") @db.Uuid
+  workOrderId     String?     @map("work_order_id") @db.Uuid
+  version         Int         @default(1)
+  status          QuoteStatus @default(draft)
+  title           String?     @db.VarChar(255)
+  description     String?     @db.Text
+  notes           String?     @db.Text
+  internalNotes   String?     @map("internal_notes") @db.Text
+  // Montos
+  subtotal        Decimal     @default(0) @db.Decimal(12, 2)
+  discountAmount  Decimal     @default(0) @map("discount_amount") @db.Decimal(12, 2)
+  taxAmount       Decimal     @default(0) @map("tax_amount") @db.Decimal(12, 2)
+  total           Decimal     @default(0) @db.Decimal(12, 2)
+  internalCost    Decimal     @default(0) @map("internal_cost") @db.Decimal(12, 2)
+  marginPercent   Decimal?    @map("margin_percent") @db.Decimal(5, 2)
+  // Fechas
+  validUntil      DateTime?   @map("valid_until") @db.Date
+  approvedAt      DateTime?   @map("approved_at")
+  approvedBy      String?     @map("approved_by") @db.VarChar(200) // Nombre de quien aprobó
+  rejectedAt      DateTime?   @map("rejected_at")
+  rejectionReason String?     @map("rejection_reason") @db.Text
+  sentAt          DateTime?   @map("sent_at")
+  sentVia         String?     @map("sent_via") @db.VarChar(50) // email, whatsapp, link
+  accessToken     String?     @unique @map("access_token") @db.VarChar(100) // Acceso público sin login
+  // Auditoría
+  createdBy       String?     @map("created_by") @db.Uuid
+  updatedBy       String?     @map("updated_by") @db.Uuid
+  createdAt       DateTime    @default(now()) @map("created_at")
+  updatedAt       DateTime    @updatedAt @map("updated_at")
+  deletedAt       DateTime?   @map("deleted_at")
+
+  // Relaciones
+  tenant    Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch    Branch      @relation(fields: [branchId], references: [id])
+  customer  Customer    @relation(fields: [customerId], references: [id])
+  workOrder WorkOrder?  @relation("QuoteFromWorkOrder", fields: [workOrderId], references: [id])
+  creator   User?       @relation("QuoteCreatedBy", fields: [createdBy], references: [id])
+  updater   User?       @relation("QuoteUpdatedBy", fields: [updatedBy], references: [id])
+  items     QuoteItem[]
+
+  @@unique([tenantId, quoteNumber])
+  @@index([tenantId, customerId])
+  @@index([tenantId, status])
+  @@map("quote")
+}
+
+/// Ítem de una cotización
+model QuoteItem {
+  id                String        @id @default(uuid()) @db.Uuid
+  tenantId          String        @map("tenant_id") @db.Uuid
+  quoteId           String        @map("quote_id") @db.Uuid
+  itemType          QuoteItemType @default(custom)
+  productId         String?       @map("product_id") @db.Uuid
+  serviceId         String?       @map("service_id") @db.Uuid
+  description       String        @db.VarChar(500)
+  quantity          Decimal       @default(1) @db.Decimal(10, 2)
+  unitCost          Decimal       @default(0) @map("unit_cost") @db.Decimal(12, 2)
+  unitPrice         Decimal       @default(0) @map("unit_price") @db.Decimal(12, 2)
+  discountPercent   Decimal       @default(0) @map("discount_percent") @db.Decimal(5, 2)
+  taxRate           Decimal       @default(0) @map("tax_rate") @db.Decimal(5, 2)
+  total             Decimal       @default(0) @db.Decimal(12, 2)
+  isVisibleToClient Boolean       @default(true) @map("is_visible_to_client")
+  sortOrder         Int           @default(0) @map("sort_order")
+  createdAt         DateTime      @default(now()) @map("created_at")
+  updatedAt         DateTime      @updatedAt @map("updated_at")
+
+  // Relaciones
+  tenant  Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  quote   Quote    @relation(fields: [quoteId], references: [id], onDelete: Cascade)
+  product Product? @relation(fields: [productId], references: [id])
+  service Service? @relation(fields: [serviceId], references: [id])
+
+  @@index([tenantId, quoteId])
+  @@map("quote_item")
+}
+
+// =============================================================================
+// 7. PRODUCTOS E INVENTARIO
+// =============================================================================
+
+/// Categoría de productos (soporta subcategorías)
+model ProductCategory {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  parentId  String?  @map("parent_id") @db.Uuid // Para subcategorías
+  name      String   @db.VarChar(200)
+  slug      String   @db.VarChar(200)
+  sortOrder Int      @default(0) @map("sort_order")
+  isActive  Boolean  @default(true) @map("is_active")
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  // Relaciones (auto-referencial)
+  tenant        Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  parent        ProductCategory?  @relation("CategoryParent", fields: [parentId], references: [id])
+  subcategories ProductCategory[] @relation("CategoryParent")
+  products      Product[]
+
+  @@unique([tenantId, slug])
+  @@index([tenantId, parentId])
+  @@map("product_category")
+}
+
+/// Producto / Repuesto
+model Product {
+  id               String    @id @default(uuid()) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  categoryId       String?   @map("category_id") @db.Uuid
+  sku              String?   @db.VarChar(50)
+  barcode          String?   @db.VarChar(50)
+  name             String    @db.VarChar(255)
+  description      String?   @db.Text
+  unit             String    @default("unidad") @db.VarChar(20) // unidad, litro, metro, etc.
+  cost             Decimal   @default(0) @db.Decimal(12, 2)
+  price            Decimal   @default(0) @db.Decimal(12, 2)
+  wholesalePrice   Decimal?  @map("wholesale_price") @db.Decimal(12, 2)
+  taxRate          Decimal   @default(0) @map("tax_rate") @db.Decimal(5, 2)
+  minStock         Decimal   @default(0) @map("min_stock") @db.Decimal(10, 2)
+  location         String?   @db.VarChar(100) // Ubicación física (bodega, estante)
+  imageUrl         String?   @map("image_url") @db.VarChar(500)
+  compatibleModels Json?     @map("compatible_models") @db.JsonB
+  isKit            Boolean   @default(false) @map("is_kit")
+  kitItems         Json?     @map("kit_items") @db.JsonB // [{productId, quantity}]
+  isActive         Boolean   @default(true) @map("is_active")
+  createdBy        String?   @map("created_by") @db.Uuid
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+  deletedAt        DateTime? @map("deleted_at")
+
+  // Relaciones
+  tenant             Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  category           ProductCategory?    @relation(fields: [categoryId], references: [id])
+  inventories        Inventory[]
+  inventoryMovements InventoryMovement[]
+  workOrderItems     WorkOrderItem[]
+  quoteItems         QuoteItem[]
+  purchaseOrderItems PurchaseOrderItem[]
+
+  @@unique([tenantId, sku])
+  @@index([tenantId, barcode])
+  @@index([tenantId, categoryId])
+  @@index([tenantId, isActive])
+  @@index([tenantId, name])
+  @@map("product")
+}
+
+/// Stock por sucursal
+model Inventory {
+  id               String   @id @default(uuid()) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  productId        String   @map("product_id") @db.Uuid
+  branchId         String   @map("branch_id") @db.Uuid
+  quantity         Decimal  @default(0) @db.Decimal(10, 2)
+  reservedQuantity Decimal  @default(0) @map("reserved_quantity") @db.Decimal(10, 2)
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id], onDelete: Cascade)
+  branch  Branch  @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, productId, branchId])
+  @@index([tenantId, branchId])
+  @@map("inventory")
+}
+
+/// Movimiento de inventario (kardex)
+model InventoryMovement {
+  id            String                @id @default(uuid()) @db.Uuid
+  tenantId      String                @map("tenant_id") @db.Uuid
+  productId     String                @map("product_id") @db.Uuid
+  branchId      String                @map("branch_id") @db.Uuid
+  type          InventoryMovementType
+  quantity      Decimal               @db.Decimal(10, 2) // Positiva o negativa
+  previousStock Decimal               @map("previous_stock") @db.Decimal(10, 2)
+  newStock      Decimal               @map("new_stock") @db.Decimal(10, 2)
+  unitCost      Decimal?              @map("unit_cost") @db.Decimal(12, 2)
+  referenceType String?               @map("reference_type") @db.VarChar(50) // work_order, purchase_order, etc.
+  referenceId   String?               @map("reference_id") @db.Uuid
+  reason        String?               @db.Text // Motivo para ajustes manuales
+  createdBy     String?               @map("created_by") @db.Uuid
+  createdAt     DateTime              @default(now()) @map("created_at")
+
+  // Relaciones
+  tenant  Tenant  @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  product Product @relation(fields: [productId], references: [id])
+  creator User?   @relation(fields: [createdBy], references: [id])
+
+  @@index([tenantId, productId, createdAt])
+  @@index([tenantId, branchId, createdAt])
+  @@index([tenantId, referenceType, referenceId])
+  @@map("inventory_movement")
+}
+
+// =============================================================================
+// 8. SERVICIOS / MANO DE OBRA
+// =============================================================================
+
+/// Servicio ofrecido por el taller
+model Service {
+  id                       String    @id @default(uuid()) @db.Uuid
+  tenantId                 String    @map("tenant_id") @db.Uuid
+  name                     String    @db.VarChar(255)
+  description              String?   @db.Text
+  cost                     Decimal   @default(0) @db.Decimal(12, 2) // Costo interno (mano de obra)
+  price                    Decimal   @default(0) @db.Decimal(12, 2) // Precio de venta
+  estimatedDurationMinutes Int?      @map("estimated_duration_minutes")
+  taxRate                  Decimal   @default(0) @map("tax_rate") @db.Decimal(5, 2)
+  isActive                 Boolean   @default(true) @map("is_active")
+  createdAt                DateTime  @default(now()) @map("created_at")
+  updatedAt                DateTime  @updatedAt @map("updated_at")
+  deletedAt                DateTime? @map("deleted_at")
+
+  // Relaciones
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  workOrderItems WorkOrderItem[]
+  quoteItems     QuoteItem[]
+
+  @@index([tenantId, isActive])
+  @@map("service")
+}
+
+// =============================================================================
+// 9. PROVEEDORES Y COMPRAS
+// =============================================================================
+
+/// Proveedor
+model Supplier {
+  id           String    @id @default(uuid()) @db.Uuid
+  tenantId     String    @map("tenant_id") @db.Uuid
+  name         String    @db.VarChar(255)
+  legalName    String?   @map("legal_name") @db.VarChar(255)
+  taxId        String?   @map("tax_id") @db.VarChar(50)
+  contactName  String?   @map("contact_name") @db.VarChar(200)
+  email        String?   @db.VarChar(255)
+  phone        String?   @db.VarChar(50)
+  address      String?   @db.Text
+  website      String?   @db.VarChar(255)
+  notes        String?   @db.Text
+  paymentTerms String?   @map("payment_terms") @db.VarChar(100)
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at")
+  updatedAt    DateTime  @updatedAt @map("updated_at")
+  deletedAt    DateTime? @map("deleted_at")
+
+  // Relaciones
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  purchaseOrders PurchaseOrder[]
+
+  @@index([tenantId, isActive])
+  @@map("supplier")
+}
+
+/// Orden de compra a proveedor
+model PurchaseOrder {
+  id              String              @id @default(uuid()) @db.Uuid
+  tenantId        String              @map("tenant_id") @db.Uuid
+  branchId        String              @map("branch_id") @db.Uuid
+  orderNumber     String              @map("order_number") @db.VarChar(30)
+  supplierId      String              @map("supplier_id") @db.Uuid
+  status          PurchaseOrderStatus @default(draft)
+  notes           String?             @db.Text
+  subtotal        Decimal             @default(0) @db.Decimal(12, 2)
+  additionalCosts Decimal             @default(0) @map("additional_costs") @db.Decimal(12, 2) // Flete, etc.
+  taxAmount       Decimal             @default(0) @map("tax_amount") @db.Decimal(12, 2)
+  total           Decimal             @default(0) @db.Decimal(12, 2)
+  expectedAt      DateTime?           @map("expected_at") @db.Date
+  receivedAt      DateTime?           @map("received_at")
+  createdBy       String?             @map("created_by") @db.Uuid
+  createdAt       DateTime            @default(now()) @map("created_at")
+  updatedAt       DateTime            @updatedAt @map("updated_at")
+
+  // Relaciones
+  tenant   Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  branch   Branch              @relation(fields: [branchId], references: [id])
+  supplier Supplier            @relation(fields: [supplierId], references: [id])
+  creator  User?               @relation(fields: [createdBy], references: [id])
+  items    PurchaseOrderItem[]
+
+  @@unique([tenantId, orderNumber])
+  @@index([tenantId, supplierId])
+  @@index([tenantId, status])
+  @@map("purchase_order")
+}
+
+/// Ítem de una orden de compra
+model PurchaseOrderItem {
+  id               String   @id @default(uuid()) @db.Uuid
+  tenantId         String   @map("tenant_id") @db.Uuid
+  purchaseOrderId  String   @map("purchase_order_id") @db.Uuid
+  productId        String   @map("product_id") @db.Uuid
+  quantityOrdered  Decimal  @map("quantity_ordered") @db.Decimal(10, 2)
+  quantityReceived Decimal  @default(0) @map("quantity_received") @db.Decimal(10, 2)
+  unitCost         Decimal  @default(0) @map("unit_cost") @db.Decimal(12, 2)
+  totalCost        Decimal  @default(0) @map("total_cost") @db.Decimal(12, 2)
+  createdAt        DateTime @default(now()) @map("created_at")
+  updatedAt        DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  tenant        Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  purchaseOrder PurchaseOrder @relation(fields: [purchaseOrderId], references: [id], onDelete: Cascade)
+  product       Product       @relation(fields: [productId], references: [id])
+
+  @@index([tenantId, purchaseOrderId])
+  @@index([tenantId, productId])
+  @@map("purchase_order_item")
+}
+
+// =============================================================================
+// 10. MANTENIMIENTO PREVENTIVO
+// =============================================================================
+
+/// Plan de mantenimiento preventivo para un activo
+model PreventivePlan {
+  id               String                  @id @default(uuid()) @db.Uuid
+  tenantId         String                  @map("tenant_id") @db.Uuid
+  assetId          String                  @map("asset_id") @db.Uuid
+  name             String                  @db.VarChar(255)
+  description      String?                 @db.Text
+  frequencyType    PreventiveFrequencyType @map("frequency_type")
+  frequencyValue   Int                     @map("frequency_value") // Cada cuántas unidades
+  alertBeforeValue Int                     @default(7) @map("alert_before_value") // Alertar X unidades antes
+  templateTasks    Json?                   @map("template_tasks") @db.JsonB
+  templateProducts Json?                   @map("template_products") @db.JsonB
+  templateServices Json?                   @map("template_services") @db.JsonB
+  lastExecutedAt   DateTime?               @map("last_executed_at")
+  nextDueAt        DateTime?               @map("next_due_at")
+  nextDueMileage   Decimal?                @map("next_due_mileage") @db.Decimal(12, 2)
+  isActive         Boolean                 @default(true) @map("is_active")
+  createdBy        String?                 @map("created_by") @db.Uuid
+  createdAt        DateTime                @default(now()) @map("created_at")
+  updatedAt        DateTime                @updatedAt @map("updated_at")
+
+  // Relaciones
+  tenant     Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  asset      Asset                 @relation(fields: [assetId], references: [id], onDelete: Cascade)
+  executions PreventiveExecution[]
+
+  @@index([tenantId, assetId])
+  @@index([tenantId, nextDueAt])
+  @@index([tenantId, isActive])
+  @@map("preventive_plan")
+}
+
+/// Ejecución de un plan preventivo
+model PreventiveExecution {
+  id               String                    @id @default(uuid()) @db.Uuid
+  tenantId         String                    @map("tenant_id") @db.Uuid
+  preventivePlanId String                    @map("preventive_plan_id") @db.Uuid
+  workOrderId      String?                   @map("work_order_id") @db.Uuid // OT generada
+  scheduledAt      DateTime                  @map("scheduled_at")
+  executedAt       DateTime?                 @map("executed_at")
+  status           PreventiveExecutionStatus @default(scheduled)
+  notes            String?                   @db.Text
+  createdAt        DateTime                  @default(now()) @map("created_at")
+  updatedAt        DateTime                  @updatedAt @map("updated_at")
+
+  // Relaciones
+  tenant         Tenant         @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  preventivePlan PreventivePlan @relation(fields: [preventivePlanId], references: [id], onDelete: Cascade)
+  workOrder      WorkOrder?     @relation(fields: [workOrderId], references: [id])
+
+  @@index([tenantId, preventivePlanId])
+  @@index([tenantId, status, scheduledAt])
+  @@map("preventive_execution")
+}
+
+// =============================================================================
+// 11. NOTIFICACIONES
+// =============================================================================
+
+/// Plantilla de notificación
+model NotificationTemplate {
+  id        String              @id @default(uuid()) @db.Uuid
+  tenantId  String?             @map("tenant_id") @db.Uuid // NULL para templates de plataforma
+  event     String              @db.VarChar(100) // work_order.created, quote.sent, etc.
+  channel   NotificationChannel
+  subject   String?             @db.VarChar(255) // Asunto (email)
+  body      String              @db.Text // Cuerpo con variables {{customer.name}}, etc.
+  isActive  Boolean             @default(true) @map("is_active")
+  createdAt DateTime            @default(now()) @map("created_at")
+  updatedAt DateTime            @updatedAt @map("updated_at")
+
+  // Relaciones
+  tenant Tenant?           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  logs   NotificationLog[]
+
+  @@index([tenantId, event, channel])
+  @@map("notification_template")
+}
+
+/// Log de notificación enviada
+model NotificationLog {
+  id            String              @id @default(uuid()) @db.Uuid
+  tenantId      String              @map("tenant_id") @db.Uuid
+  templateId    String?             @map("template_id") @db.Uuid
+  channel       NotificationChannel
+  recipient     String              @db.VarChar(255) // Email, teléfono, etc.
+  subject       String?             @db.VarChar(255)
+  body          String?             @db.Text
+  status        NotificationStatus  @default(queued)
+  errorMessage  String?             @map("error_message") @db.Text
+  referenceType String?             @map("reference_type") @db.VarChar(50)
+  referenceId   String?             @map("reference_id") @db.Uuid
+  sentAt        DateTime?           @map("sent_at")
+  createdAt     DateTime            @default(now()) @map("created_at")
+
+  // Relaciones
+  tenant   Tenant                @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  template NotificationTemplate? @relation(fields: [templateId], references: [id])
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, referenceType, referenceId])
+  @@index([tenantId, status])
+  @@map("notification_log")
+}
+
+// =============================================================================
+// 12. AUDITORÍA Y ARCHIVOS
+// =============================================================================
+
+/// Log de auditoría del sistema
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  action     String   @db.VarChar(50) // create, update, delete, login, export, approve, etc.
+  entityType String   @map("entity_type") @db.VarChar(50)
+  entityId   String?  @map("entity_id") @db.Uuid
+  changes    Json?    @db.JsonB // {field: {old: ..., new: ...}}
+  ipAddress  String?  @map("ip_address") @db.VarChar(45)
+  userAgent  String?  @map("user_agent") @db.VarChar(500)
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  // Relaciones
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User?  @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, entityType, entityId])
+  @@index([tenantId, userId, createdAt])
+  @@index([tenantId, action, createdAt])
+  @@map("audit_log")
+}
+
+/// Archivo adjunto genérico (asociado a cualquier entidad)
+model FileAttachment {
+  id         String   @id @default(uuid()) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  entityType String   @map("entity_type") @db.VarChar(50) // work_order, asset, purchase_order, etc.
+  entityId   String   @map("entity_id") @db.Uuid
+  fileName   String   @map("file_name") @db.VarChar(255)
+  fileUrl    String   @map("file_url") @db.VarChar(500)
+  fileSize   Int      @map("file_size") // Tamaño en bytes
+  mimeType   String   @map("mime_type") @db.VarChar(100)
+  uploadedBy String?  @map("uploaded_by") @db.Uuid
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  // Relaciones
+  tenant   Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  uploader User?  @relation(fields: [uploadedBy], references: [id])
+
+  @@index([tenantId, entityType, entityId])
+  @@map("file_attachment")
+}
+
+/// Configuración S3 por tenant
+model S3Config {
+  id              String   @id @default(uuid()) @db.Uuid
+  tenantId        String   @map("tenant_id") @db.Uuid
+  accessKeyId     String   @map("access_key_id") @db.VarChar(200)
+  secretAccessKey String   @map("secret_access_key") @db.VarChar(200)
+  bucket          String   @db.VarChar(200)
+  region          String?  @db.VarChar(100)
+  endpoint        String?  @db.VarChar(300)
+  basePath        String?  @map("base_path") @db.VarChar(200)
+  isActive        Boolean  @default(true) @map("is_active")
+  createdAt       DateTime @default(now()) @map("created_at")
+  updatedAt       DateTime @updatedAt @map("updated_at")
+
+  // Relaciones
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId])
+  @@map("s3_config")
+}
+
+// =============================================================================
+// 13. INTEGRACIONES (WEBHOOKS)
+// =============================================================================
+
+/// Endpoint de webhook configurado por el tenant
+model WebhookEndpoint {
+  id              String    @id @default(uuid()) @db.Uuid
+  tenantId        String    @map("tenant_id") @db.Uuid
+  url             String    @db.VarChar(500)
+  events          Json      @db.JsonB // ["work_order.created", "quote.approved", ...]
+  secret          String    @db.VarChar(255) // Secret para firma HMAC
+  isActive        Boolean   @default(true) @map("is_active")
+  lastTriggeredAt DateTime? @map("last_triggered_at")
+  failureCount    Int       @default(0) @map("failure_count")
+  createdAt       DateTime  @default(now()) @map("created_at")
+  updatedAt       DateTime  @updatedAt @map("updated_at")
+
+  // Relaciones
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, isActive])
+  @@map("webhook_endpoint")
+}
+
+// =============================================================================
+// 14. SINCRONIZACIÓN MÓVIL
+// =============================================================================
+
+/// Log de sincronización de la app móvil
+model MobileSyncLog {
+  id             String              @id @default(uuid()) @db.Uuid
+  tenantId       String              @map("tenant_id") @db.Uuid
+  userId         String              @map("user_id") @db.Uuid
+  deviceId       String              @map("device_id") @db.VarChar(255)
+  syncType       MobileSyncType      @map("sync_type")
+  direction      MobileSyncDirection
+  entitiesSynced Json?               @map("entities_synced") @db.JsonB // {work_orders: 5, photos: 3}
+  conflicts      Json?               @db.JsonB
+  status         MobileSyncStatus    @default(started)
+  startedAt      DateTime            @map("started_at")
+  completedAt    DateTime?           @map("completed_at")
+  errorMessage   String?             @map("error_message") @db.Text
+  createdAt      DateTime            @default(now()) @map("created_at")
+
+  // Relaciones
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id])
+
+  @@index([tenantId, userId, createdAt])
+  @@map("mobile_sync_log")
+}

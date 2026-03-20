@@ -1,0 +1,27 @@
+{
+  "name": "tallerhub-migration-tools",
+  "version": "1.0.0",
+  "description": "Herramientas de migración desde Gestioo a TallerHub",
+  "private": true,
+  "scripts": {
+    "migrate": "ts-node src/import.ts",
+    "migrate:customers": "ts-node src/import.ts --entity customers",
+    "migrate:assets": "ts-node src/import.ts --entity assets",
+    "migrate:products": "ts-node src/import.ts --entity products",
+    "migrate:orders": "ts-node src/import.ts --entity orders",
+    "migrate:dry-run": "ts-node src/import.ts --dry-run",
+    "validate": "ts-node src/import.ts --validate-only"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.0.0",
+    "csv-parse": "^5.5.0",
+    "dotenv": "^16.3.0",
+    "uuid": "^9.0.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.0.0",
+    "@types/uuid": "^9.0.0",
+    "ts-node": "^10.9.0",
+    "typescript": "^5.0.0"
+  }
+}
