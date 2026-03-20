@@ -548,6 +548,10 @@ export default function OrdenesPage() {
       { id: 'chequeo', label: 'Chequeo', codes: ['chequeo'], aliases: ['chequeo'] },
       { id: 'sin_estado', label: 'Sin estado', codes: ['sin_estado'], aliases: ['sin estado'] },
     ],
+    domicilio: [
+      { id: 'chequeo', label: 'Chequeo', codes: ['chequeo'], aliases: ['chequeo'] },
+      { id: 'sin_estado', label: 'Sin estado', codes: ['sin_estado'], aliases: ['sin estado'] },
+    ],
     reparacion: [
       { id: 'chequeo', label: 'Chequeo', codes: ['chequeo'], aliases: ['chequeo'] },
       { id: 'esperando_repuesto', label: 'Esperando repuesto', codes: ['esperando_repuesto'], aliases: ['esperando repuesto'] },
