@@ -105,6 +105,7 @@ function Icon({ name }: { name: IconName }) {
 export function Sidebar() {
   const pathname = usePathname();
   const [collapsed, setCollapsed] = useState(false);
+  const [mobileOpen, setMobileOpen] = useState(false);
 
   const activeSectionId = useMemo(() => {
     return sections.find((s) => s.items.some((i) => isPathActive(pathname, i.href)))?.id || 'centro';
@@ -124,89 +125,167 @@ export function Sidebar() {
     setOpenSections((prev) => ({ ...prev, [activeSectionId]: true }));
   }, [activeSectionId]);
 
-  return (
-    <aside className={`relative hidden shrink-0 bg-[#ececee] p-4 transition-all duration-200 lg:flex ${collapsed ? 'lg:w-[90px]' : 'lg:w-[308px]'}`}>
-      <div className="flex h-full w-full flex-col rounded-[30px] border border-gray-200 bg-[#f6f6f7] p-4 shadow-sm">
-        <button
-          className={`absolute z-20 h-11 w-11 rounded-full bg-[#1f78c8] text-[30px] leading-none text-white shadow-lg ${collapsed ? 'left-[70px] top-[136px]' : 'left-[282px] top-[136px]'}`}
-          onClick={() => setCollapsed((v) => !v)}
-          type="button"
-          title={collapsed ? 'Expandir menú' : 'Contraer menú'}
-        >
-          {collapsed ? '›' : '‹'}
-        </button>
+  useEffect(() => {
+    setMobileOpen(false);
+  }, [pathname]);
 
-        {!collapsed ? (
-          <div className="px-2 pt-1">
-            <div className="text-[72px] font-black leading-[0.84] tracking-tight text-[#2f3541]">
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setMobileOpen(false);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  useEffect(() => {
+    if (!mobileOpen) return;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [mobileOpen]);
+
+  const renderNavigation = (isCollapsedView: boolean, isMobileView = false) => (
+    <nav className="mt-5 flex-1 overflow-y-auto">
+      {sections.map((section) => {
+        const sectionActive = activeSectionId === section.id;
+        const open = openSections[section.id];
+        return (
+          <div key={section.id} className={`relative mb-1 rounded-2xl ${sectionActive && !isCollapsedView ? 'bg-[#d6e8f7]' : ''}`}>
+            {sectionActive && !isCollapsedView ? <span className="absolute left-0 top-2 h-10 w-[3px] rounded-r-full bg-[#2f3541]" /> : null}
+            <button
+              className={`flex w-full items-center rounded-2xl py-2.5 text-[#3f4350] hover:bg-white/70 ${isCollapsedView ? 'justify-center px-0' : 'justify-between px-3'}`}
+              onClick={() => {
+                if (isCollapsedView && !isMobileView) {
+                  const first = section.items[0];
+                  if (first) window.location.href = first.href;
+                  return;
+                }
+                setOpenSections((prev) => ({ ...prev, [section.id]: !prev[section.id] }));
+              }}
+              type="button"
+            >
+              <span className="flex items-center gap-3">
+                <Icon name={section.icon} />
+                {!isCollapsedView ? <span className="text-[15px] font-medium text-[#3f4350]">{section.label}</span> : null}
+              </span>
+              {!isCollapsedView ? <span className="text-[22px] text-[#4b505d]">{open ? '⌃' : '⌄'}</span> : null}
+            </button>
+
+            {!isCollapsedView && open ? (
+              <div className="pb-2 pl-9 pr-2">
+                <div className="ml-1 rounded-l-2xl border-l-2 border-[#8fc7ef] pl-3">
+                  {section.items.map((item) => {
+                    const active = isPathActive(pathname, item.href);
+                    return (
+                      <a
+                        key={item.href}
+                        href={item.href}
+                        onClick={() => {
+                          if (isMobileView) setMobileOpen(false);
+                        }}
+                        className={`block rounded-lg px-2.5 py-2 text-[15px] ${
+                          active ? 'font-semibold text-[#212632]' : 'text-[#4c5160] hover:bg-[#edf4fb]'
+                        }`}
+                      >
+                        {item.label}
+                      </a>
+                    );
+                  })}
+                </div>
+              </div>
+            ) : null}
+          </div>
+        );
+      })}
+    </nav>
+  );
+
+  return (
+    <>
+      <button
+        type="button"
+        className="fixed left-3 top-3 z-40 h-10 w-10 rounded-xl border border-gray-200 bg-white text-xl text-gray-700 shadow lg:hidden"
+        onClick={() => setMobileOpen(true)}
+        aria-label="Abrir menú"
+      >
+        ☰
+      </button>
+
+      <div
+        className={`fixed inset-0 z-40 bg-black/35 transition-opacity duration-200 lg:hidden ${
+          mobileOpen ? 'pointer-events-auto opacity-100' : 'pointer-events-none opacity-0'
+        }`}
+        onClick={() => setMobileOpen(false)}
+      />
+
+      <aside
+        className={`fixed inset-y-0 left-0 z-50 w-[272px] bg-[#ececee] p-3 transition-transform duration-200 lg:hidden ${
+          mobileOpen ? 'translate-x-0' : '-translate-x-full'
+        }`}
+      >
+        <div className="flex h-full w-full flex-col rounded-[26px] border border-gray-200 bg-[#f6f6f7] p-3 shadow-sm">
+          <div className="flex items-start justify-between px-2 pt-1">
+            <div className="text-[54px] font-black leading-[0.84] tracking-tight text-[#2f3541]">
               TH<span className="text-[#1f78c8]">+</span>
             </div>
-            <div className="mt-3 flex justify-center">
-              <button className="h-12 w-12 rounded-2xl border border-dashed border-[#9fb2c8] text-[34px] leading-none text-[#96aac0]">+</button>
-            </div>
+            <button
+              type="button"
+              className="h-9 w-9 rounded-full border border-gray-200 bg-white text-xl leading-none text-gray-600"
+              onClick={() => setMobileOpen(false)}
+              aria-label="Cerrar menú"
+            >
+              ×
+            </button>
           </div>
-        ) : (
-          <div className="flex justify-center pt-1">
-            <div className="text-[34px] font-black text-[#2f3541]">TH<span className="text-[#1f78c8]">+</span></div>
+          <div className="mt-3 flex justify-center">
+            <button className="h-10 w-10 rounded-2xl border border-dashed border-[#9fb2c8] text-[28px] leading-none text-[#96aac0]">+</button>
           </div>
-        )}
 
-        <nav className="mt-5 flex-1 overflow-y-auto">
-          {sections.map((section) => {
-            const sectionActive = activeSectionId === section.id;
-            const open = openSections[section.id];
-            return (
-              <div key={section.id} className={`relative mb-1 rounded-2xl ${sectionActive && !collapsed ? 'bg-[#d6e8f7]' : ''}`}>
-                {sectionActive && !collapsed ? <span className="absolute left-0 top-2 h-10 w-[3px] rounded-r-full bg-[#2f3541]" /> : null}
-                <button
-                  className={`flex w-full items-center rounded-2xl py-2.5 text-[#3f4350] hover:bg-white/70 ${collapsed ? 'justify-center px-0' : 'justify-between px-3'}`}
-                  onClick={() => {
-                    if (collapsed) {
-                      const first = section.items[0];
-                      if (first) window.location.href = first.href;
-                      return;
-                    }
-                    setOpenSections((prev) => ({ ...prev, [section.id]: !prev[section.id] }));
-                  }}
-                  type="button"
-                >
-                  <span className="flex items-center gap-3">
-                    <Icon name={section.icon} />
-                    {!collapsed ? <span className="text-[15px] font-medium text-[#3f4350]">{section.label}</span> : null}
-                  </span>
-                  {!collapsed ? <span className="text-[22px] text-[#4b505d]">{open ? '⌃' : '⌄'}</span> : null}
-                </button>
+          {renderNavigation(false, true)}
 
-                {!collapsed && open ? (
-                  <div className="pb-2 pl-9 pr-2">
-                    <div className="ml-1 rounded-l-2xl border-l-2 border-[#8fc7ef] pl-3">
-                      {section.items.map((item) => {
-                        const active = isPathActive(pathname, item.href);
-                        return (
-                          <a
-                            key={item.href}
-                            href={item.href}
-                            className={`block rounded-lg px-2.5 py-2 text-[15px] ${
-                              active ? 'font-semibold text-[#212632]' : 'text-[#4c5160] hover:bg-[#edf4fb]'
-                            }`}
-                          >
-                            {item.label}
-                          </a>
-                        );
-                      })}
-                    </div>
-                  </div>
-                ) : null}
-              </div>
-            );
-          })}
-        </nav>
-
-        <div className={`mt-3 flex items-center ${collapsed ? 'justify-center' : 'justify-between'} px-1`}>
-          <div className="h-9 w-[58px] rounded-full bg-[#d5d7dd]" />
-          {!collapsed ? <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#d5d7dd] text-sm">🔌</div> : null}
+          <div className="mt-3 flex items-center justify-between px-1">
+            <div className="h-9 w-[58px] rounded-full bg-[#d5d7dd]" />
+            <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#d5d7dd] text-sm">🔌</div>
+          </div>
         </div>
-      </div>
-    </aside>
+      </aside>
+
+      <aside className={`relative hidden shrink-0 bg-[#ececee] p-4 transition-all duration-200 lg:flex ${collapsed ? 'lg:w-[90px]' : 'lg:w-[308px]'}`}>
+        <div className="flex h-full w-full flex-col rounded-[30px] border border-gray-200 bg-[#f6f6f7] p-4 shadow-sm">
+          <button
+            className={`absolute z-20 h-11 w-11 rounded-full bg-[#1f78c8] text-[30px] leading-none text-white shadow-lg ${collapsed ? 'left-[70px] top-[136px]' : 'left-[282px] top-[136px]'}`}
+            onClick={() => setCollapsed((v) => !v)}
+            type="button"
+            title={collapsed ? 'Expandir menú' : 'Contraer menú'}
+          >
+            {collapsed ? '›' : '‹'}
+          </button>
+
+          {!collapsed ? (
+            <div className="px-2 pt-1">
+              <div className="text-[72px] font-black leading-[0.84] tracking-tight text-[#2f3541]">
+                TH<span className="text-[#1f78c8]">+</span>
+              </div>
+              <div className="mt-3 flex justify-center">
+                <button className="h-12 w-12 rounded-2xl border border-dashed border-[#9fb2c8] text-[34px] leading-none text-[#96aac0]">+</button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex justify-center pt-1">
+              <div className="text-[34px] font-black text-[#2f3541]">TH<span className="text-[#1f78c8]">+</span></div>
+            </div>
+          )}
+
+          {renderNavigation(collapsed)}
+
+          <div className={`mt-3 flex items-center ${collapsed ? 'justify-center' : 'justify-between'} px-1`}>
+            <div className="h-9 w-[58px] rounded-full bg-[#d5d7dd]" />
+            {!collapsed ? <div className="flex h-9 w-9 items-center justify-center rounded-full bg-[#d5d7dd] text-sm">🔌</div> : null}
+          </div>
+        </div>
+      </aside>
+    </>
   );
 }

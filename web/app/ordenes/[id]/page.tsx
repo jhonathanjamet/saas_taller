@@ -163,6 +163,13 @@ const STATUS_CODES_BY_AREA: Record<'entrada' | 'domicilio' | 'reparacion' | 'sal
   salida: ['cambio', 'instalado', 'no_presento_falla', 'no_reparado', 'reparado', 'retenido', 'sin_solucion'],
 };
 
+const STATUS_HINTS_BY_AREA: Record<'entrada' | 'domicilio' | 'reparacion' | 'salida', string[]> = {
+  entrada: ['ingresad', 'chequeo', 'sin estado'],
+  domicilio: ['domicilio', 'terreno', 'chequeo'],
+  reparacion: ['reparac', 'esperando repuesto', 'esperando respuesta', 'chequeo'],
+  salida: ['reparado', 'no reparado', 'sin solucion', 'retenido', 'instalado', 'cambio', 'no presento falla'],
+};
+
 function normalizeText(value?: string | null) {
   return (value || '')
     .normalize('NFD')
@@ -366,6 +373,8 @@ export default function OrdenDetallePage() {
   const [savingItem, setSavingItem] = useState(false);
   const [savingAdditional, setSavingAdditional] = useState(false);
   const [savingStatus, setSavingStatus] = useState(false);
+  const [statusesLoading, setStatusesLoading] = useState(false);
+  const [deletingItemId, setDeletingItemId] = useState<string | null>(null);
   const [showHideItemModal, setShowHideItemModal] = useState(false);
   const [hideItemTarget, setHideItemTarget] = useState<WorkOrderItem | null>(null);
   const [hideAddCustomItem, setHideAddCustomItem] = useState(false);
@@ -406,6 +415,23 @@ export default function OrdenDetallePage() {
       setWhatsappConnection(connected ? 'connected' : 'disconnected');
     } catch {
       setWhatsappConnection('error');
+    }
+  };
+
+  const reloadStatuses = async () => {
+    if (!token) return statuses;
+    setStatusesLoading(true);
+    try {
+      const statusList = await apiRequest<WorkOrderStatus[]>('/work-order-statuses', {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setStatuses(statusList);
+      return statusList;
+    } catch (err: any) {
+      setUiNotice({ type: 'error', message: err?.message || 'No se pudieron cargar los estados.' });
+      return statuses;
+    } finally {
+      setStatusesLoading(false);
     }
   };
 
@@ -476,6 +502,11 @@ export default function OrdenDetallePage() {
 
       await Promise.all(requests);
       await refreshWhatsAppConnection();
+    } catch (err: any) {
+      setUiNotice({
+        type: 'error',
+        message: err?.message || 'No se pudo refrescar la orden desde servidor.',
+      });
     } finally {
       setRefreshing(false);
     }
@@ -620,6 +651,11 @@ export default function OrdenDetallePage() {
     };
   }, [openItemMenuId]);
 
+  useEffect(() => {
+    if (!showStatusModal) return;
+    void reloadStatuses();
+  }, [showStatusModal]);
+
   const customerName = useMemo(() => {
     if (!customer) return '—';
     const fullName = [customer.firstName, customer.lastName].filter(Boolean).join(' ').trim();
@@ -734,6 +770,8 @@ export default function OrdenDetallePage() {
         headers: { Authorization: `Bearer ${token}` },
         body: JSON.stringify({ content: newNote.trim(), isInternal: false, kind: 'note' }),
       });
+      setComments((prev) => [created, ...prev.filter((c) => c.id !== created.id)]);
+      setNewNote('');
 
       try {
         const refreshed = await apiRequest<WorkOrderComment[]>(
@@ -742,10 +780,8 @@ export default function OrdenDetallePage() {
         );
         setComments(refreshed);
       } catch {
-        setComments((prev) => [created, ...prev]);
+        // Si falla el refresco secundario, mantenemos el comentario recién creado en UI.
       }
-
-      setNewNote('');
       setUiNotice({ type: 'success', message: 'Nota guardada.' });
     } catch (err: any) {
       setUiNotice({ type: 'error', message: err?.message || 'No se pudo guardar la nota.' });
@@ -767,6 +803,8 @@ export default function OrdenDetallePage() {
           kind: 'diagnostic',
         }),
       });
+      setComments((prev) => [created, ...prev.filter((c) => c.id !== created.id)]);
+      setNewDiagnostic('');
 
       try {
         const refreshed = await apiRequest<WorkOrderComment[]>(
@@ -775,10 +813,8 @@ export default function OrdenDetallePage() {
         );
         setComments(refreshed);
       } catch {
-        setComments((prev) => [created, ...prev]);
+        // Si falla el refresco secundario, mantenemos el diagnóstico recién creado en UI.
       }
-
-      setNewDiagnostic('');
       setUiNotice({ type: 'success', message: 'Diagnóstico guardado.' });
     } catch (err: any) {
       setUiNotice({ type: 'error', message: err?.message || 'No se pudo guardar el diagnóstico.' });
@@ -812,13 +848,20 @@ export default function OrdenDetallePage() {
   const allowedStatuses = useMemo(() => {
     const allowedNames = STATUS_OPTIONS_BY_AREA[statusAreaSelection] || [];
     const allowedCodes = (STATUS_CODES_BY_AREA[statusAreaSelection] || []).map((c) => normalizeText(c));
-    return statuses.filter((s) => {
+    const strictMatches = statuses.filter((s) => {
       const code = normalizeText(s.code || '');
       const name = normalizeText(s.name);
       return (
         (code && allowedCodes.includes(code)) ||
         allowedNames.some((label) => normalizeText(label) === name)
       );
+    });
+    if (strictMatches.length) return strictMatches;
+
+    const hints = STATUS_HINTS_BY_AREA[statusAreaSelection] || [];
+    return statuses.filter((s) => {
+      const haystack = normalizeText(`${s.code || ''} ${s.name || ''}`);
+      return hints.some((hint) => haystack.includes(normalizeText(hint)));
     });
   }, [statuses, statusAreaSelection]);
 
@@ -919,12 +962,13 @@ export default function OrdenDetallePage() {
     });
   };
 
-  const openMove = () => {
+  const openMove = async () => {
     if (order) {
       setStatusAreaSelection(normalizeArea(order.orderType || status?.name || 'entrada'));
       setStatusSelection(order.statusId);
     }
     setShowStatusModal(true);
+    await reloadStatuses();
   };
 
   const toggleItemVisibility = async (item: WorkOrderItem) => {
@@ -983,17 +1027,46 @@ export default function OrdenDetallePage() {
 
   const deleteItemMenuAction = async (item: WorkOrderItem) => {
     if (!order?.id || !token || !canEditQuote) return;
-    await apiRequest(`/work-orders/${order.id}/items/${item.id}`, {
-      method: 'DELETE',
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    setItems((prev) => prev.filter((i) => i.id !== item.id));
-    const refreshed = await apiRequest<WorkOrder>(`/work-orders/${order.id}`, {
-      headers: { Authorization: `Bearer ${token}` },
-    });
-    setOrder(refreshed);
-    setOpenItemMenuId(null);
-    setItemMenuPosition(null);
+    setDeletingItemId(item.id);
+    try {
+      await apiRequest(`/work-orders/${order.id}/items/${item.id}`, {
+        method: 'DELETE',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      setItems((prev) => prev.filter((i) => i.id !== item.id));
+
+      let hasSecondaryRefreshError = false;
+      try {
+        const refreshedItems = await apiRequest<WorkOrderItem[]>(`/work-orders/${order.id}/items`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        setItems(refreshedItems);
+      } catch {
+        hasSecondaryRefreshError = true;
+      }
+
+      try {
+        const refreshedOrder = await apiRequest<WorkOrder>(`/work-orders/${order.id}`, {
+          headers: { Authorization: `Bearer ${token}` },
+        });
+        setOrder(refreshedOrder);
+      } catch {
+        hasSecondaryRefreshError = true;
+      }
+
+      setUiNotice({
+        type: 'success',
+        message: hasSecondaryRefreshError
+          ? 'Ítem eliminado. La pantalla se actualizará al recargar.'
+          : 'Ítem eliminado correctamente.',
+      });
+    } catch (err: any) {
+      setUiNotice({ type: 'error', message: err?.message || 'No se pudo eliminar el ítem.' });
+    } finally {
+      setDeletingItemId(null);
+      setOpenItemMenuId(null);
+      setItemMenuPosition(null);
+    }
   };
 
   const previewDigitalOrder = () => {
@@ -1480,7 +1553,10 @@ export default function OrdenDetallePage() {
             <span className="rounded-full bg-sand px-3 py-1.5 text-gray-700 sm:px-4 sm:py-2">{statusLabel}</span>
             <button
               className="rounded-full border border-gray-200 bg-white px-3 py-1.5 text-gray-700 hover:bg-sand sm:px-4 sm:py-2"
-              onClick={() => setShowStatusModal(true)}
+              onClick={async () => {
+                setShowStatusModal(true);
+                await reloadStatuses();
+              }}
             >
               Cambiar estado
             </button>
@@ -1858,21 +1934,29 @@ export default function OrdenDetallePage() {
                                   onClick={async () => {
                                     if (!order?.id || !token || !editingItemDraft) return;
                                     if (!canEditQuote) return;
-                                    const updated = await apiRequest<WorkOrderItem>(
-                                      `/work-orders/${order.id}/items/${item.id}`,
-                                      {
-                                        method: 'PATCH',
+                                    try {
+                                      const updated = await apiRequest<WorkOrderItem>(
+                                        `/work-orders/${order.id}/items/${item.id}`,
+                                        {
+                                          method: 'PATCH',
+                                          headers: { Authorization: `Bearer ${token}` },
+                                          body: JSON.stringify(editingItemDraft),
+                                        },
+                                      );
+                                      setItems((prev) => prev.map((i) => (i.id === item.id ? updated : i)));
+                                      const refreshed = await apiRequest<WorkOrder>(`/work-orders/${order.id}`, {
                                         headers: { Authorization: `Bearer ${token}` },
-                                        body: JSON.stringify(editingItemDraft),
-                                      },
-                                    );
-                                    setItems((prev) => prev.map((i) => (i.id === item.id ? updated : i)));
-                                    const refreshed = await apiRequest<WorkOrder>(`/work-orders/${order.id}`, {
-                                      headers: { Authorization: `Bearer ${token}` },
-                                    });
-                                    setOrder(refreshed);
-                                    setEditingItemId(null);
-                                    setEditingItemDraft(null);
+                                      });
+                                      setOrder(refreshed);
+                                      setEditingItemId(null);
+                                      setEditingItemDraft(null);
+                                      setUiNotice({ type: 'success', message: 'Ítem actualizado.' });
+                                    } catch (err: any) {
+                                      setUiNotice({
+                                        type: 'error',
+                                        message: err?.message || 'No se pudo actualizar el ítem.',
+                                      });
+                                    }
                                   }}
                                 >
                                   Guardar
@@ -1942,10 +2026,10 @@ export default function OrdenDetallePage() {
                   </button>
                   <button
                     className="block w-full rounded-lg px-3 py-2 text-left text-sm text-red-600 hover:bg-red-50"
-                    disabled={!canEditQuote}
+                    disabled={!canEditQuote || deletingItemId === activeMenuItem.id}
                     onClick={() => deleteItemMenuAction(activeMenuItem)}
                   >
-                    Eliminar
+                    {deletingItemId === activeMenuItem.id ? 'Eliminando...' : 'Eliminar'}
                   </button>
                 </div>,
                 document.body,
@@ -2553,12 +2637,21 @@ export default function OrdenDetallePage() {
                   className="mt-2 w-full rounded-md border border-gray-200 px-3 py-2 text-sm"
                   value={statusSelection}
                   onChange={(e) => setStatusSelection(e.target.value)}
+                  disabled={statusesLoading}
                 >
-                  {(allowedStatuses.length ? allowedStatuses : statuses).map((s) => (
-                    <option key={s.id} value={s.id}>
-                      {s.name}
+                  {!allowedStatuses.length ? (
+                    <option value="">
+                      {statusesLoading
+                        ? 'Cargando estados...'
+                        : 'Sin estados para esta área (revisa configuración)'}
                     </option>
-                  ))}
+                  ) : (
+                    allowedStatuses.map((s) => (
+                      <option key={s.id} value={s.id}>
+                        {s.name}
+                      </option>
+                    ))
+                  )}
                 </select>
               </div>
               <div className="mt-6 flex items-center justify-end gap-3">
@@ -2570,9 +2663,12 @@ export default function OrdenDetallePage() {
                 </button>
                 <button
                   className="rounded-full bg-brand px-4 py-2 text-sm text-white disabled:bg-gray-300"
-                  disabled={savingStatus}
+                  disabled={savingStatus || statusesLoading || !statusSelection || !allowedStatuses.length}
                   onClick={async () => {
-                    if (!order?.id || !token || !statusSelection) return;
+                    if (!order?.id || !token || !statusSelection) {
+                      setUiNotice({ type: 'error', message: 'Selecciona un estado válido para guardar.' });
+                      return;
+                    }
                     setSavingStatus(true);
                     try {
                       const updated = await apiRequest<WorkOrder>(`/work-orders/${order.id}`, {
@@ -2583,10 +2679,24 @@ export default function OrdenDetallePage() {
                           orderType: statusAreaSelection,
                         }),
                       });
-                      const selectedStatus = statuses.find((s) => s.id === statusSelection) || null;
-                      setOrder(updated);
+                      const selectedStatus = allowedStatuses.find((s) => s.id === statusSelection)
+                        || statuses.find((s) => s.id === statusSelection)
+                        || null;
+                      setOrder((prev) =>
+                        prev
+                          ? {
+                              ...prev,
+                              ...updated,
+                              statusId: statusSelection,
+                              orderType: statusAreaSelection,
+                              updatedAt: new Date().toISOString(),
+                            }
+                          : updated,
+                      );
                       setStatus(selectedStatus);
                       setShowStatusModal(false);
+                      setUiNotice({ type: 'success', message: 'Estado actualizado.' });
+                      void refreshOrderData();
                     } catch (err: any) {
                       setUiNotice({ type: 'error', message: err?.message || 'No se pudo cambiar el estado.' });
                     } finally {

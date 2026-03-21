@@ -183,8 +183,14 @@ async function seedRoles() {
 
   // Rol global de plataforma (sin tenant)
   await prisma.role.upsert({
-    where: { tenantId_code: { tenantId: IDS.tenantDemo, code: 'platform_superadmin' } },
-    update: {},
+    where: { id: IDS.roleSuperadmin },
+    update: {
+      tenantId: null,
+      name: 'Superadmin Plataforma',
+      code: 'platform_superadmin',
+      description: 'Administrador global de la plataforma SaaS',
+      isSystem: true,
+    },
     create: {
       id: IDS.roleSuperadmin,
       tenantId: null,

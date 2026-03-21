@@ -1,4 +1,4 @@
-import { IsOptional, IsString } from 'class-validator';
+import { IsBoolean, IsDateString, IsNumber, IsOptional, IsString } from 'class-validator';
 
 export class CreateWorkOrderDto {
   @IsOptional()
@@ -28,6 +28,10 @@ export class CreateWorkOrderDto {
 
   @IsOptional()
   @IsString()
+  channel?: string;
+
+  @IsOptional()
+  @IsString()
   initialDiagnosis?: string;
 
   @IsOptional()
@@ -47,8 +51,18 @@ export class CreateWorkOrderDto {
   internalNotes?: string;
 
   @IsOptional()
+  @IsString()
+  warrantyTerms?: string;
+
+  @IsOptional()
+  @IsDateString()
+  promisedAt?: string;
+
+  @IsOptional()
+  @IsNumber()
   discountAmount?: number;
 
   @IsOptional()
+  @IsBoolean()
   quoteApproved?: boolean;
 }

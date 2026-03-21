@@ -3,6 +3,8 @@ import { ApiBearerAuth, ApiTags } from '@nestjs/swagger';
 import { JwtAuthGuard } from '../../common/guards/jwt-auth.guard';
 import { PermissionGuard } from '../../common/guards/permission.guard';
 import { RequirePermission } from '../../common/decorators/require-permission.decorator';
+import { CurrentUser } from '../../common/decorators/current-user.decorator';
+import { AuthUser } from '../../common/types/auth-user';
 import { WorkOrdersService } from './work-orders.service';
 import { CreateWorkOrderDto } from './dto/create-work-order.dto';
 import { UpdateWorkOrderDto } from './dto/update-work-order.dto';
@@ -34,8 +36,11 @@ export class WorkOrdersController {
 
   @Post(':id/deliver')
   @RequirePermission('work_orders:update')
-  deliver(@Param('id') id: string) {
-    return this.workOrders.deliver(id);
+  deliver(@Param('id') id: string, @CurrentUser() user?: AuthUser) {
+    return this.workOrders.deliver(id, {
+      userId: user?.id,
+      tenantId: user?.tenantId,
+    });
   }
 
   @Get(':id')
@@ -52,8 +57,15 @@ export class WorkOrdersController {
 
   @Post(':id/comments')
   @RequirePermission('work_orders:update')
-  addComment(@Param('id') id: string, @Body() dto: CreateWorkOrderCommentDto) {
-    return this.workOrders.addComment(id, dto);
+  addComment(
+    @Param('id') id: string,
+    @Body() dto: CreateWorkOrderCommentDto,
+    @CurrentUser() user?: AuthUser,
+  ) {
+    return this.workOrders.addComment(id, dto, {
+      userId: user?.id,
+      tenantId: user?.tenantId,
+    });
   }
 
   @Patch(':id/comments/:commentId')
@@ -80,8 +92,12 @@ export class WorkOrdersController {
 
   @Post(':id/tasks')
   @RequirePermission('work_orders:update')
-  addTask(@Param('id') id: string, @Body() dto: CreateWorkOrderTaskDto) {
-    return this.workOrders.addTask(id, dto);
+  addTask(
+    @Param('id') id: string,
+    @Body() dto: CreateWorkOrderTaskDto,
+    @CurrentUser() user?: AuthUser,
+  ) {
+    return this.workOrders.addTask(id, dto, { tenantId: user?.tenantId });
   }
 
   @Patch(':id/tasks/:taskId')
@@ -108,8 +124,15 @@ export class WorkOrdersController {
 
   @Post(':id/items')
   @RequirePermission('work_orders:update')
-  addItem(@Param('id') id: string, @Body() dto: CreateWorkOrderItemDto) {
-    return this.workOrders.addItem(id, dto);
+  addItem(
+    @Param('id') id: string,
+    @Body() dto: CreateWorkOrderItemDto,
+    @CurrentUser() user?: AuthUser,
+  ) {
+    return this.workOrders.addItem(id, dto, {
+      userId: user?.id,
+      tenantId: user?.tenantId,
+    });
   }
 
   @Patch(':id/items/:itemId')
@@ -130,8 +153,8 @@ export class WorkOrdersController {
 
   @Post()
   @RequirePermission('work_orders:create')
-  create(@Body() dto: CreateWorkOrderDto) {
-    return this.workOrders.create(dto);
+  create(@Body() dto: CreateWorkOrderDto, @CurrentUser() user?: AuthUser) {
+    return this.workOrders.create(dto, { tenantId: user?.tenantId });
   }
 
   @Patch(':id')
@@ -142,7 +165,10 @@ export class WorkOrdersController {
 
   @Delete(':id')
   @RequirePermission('work_orders:delete')
-  remove(@Param('id') id: string) {
-    return this.workOrders.remove(id);
+  remove(@Param('id') id: string, @CurrentUser() user?: AuthUser) {
+    return this.workOrders.remove(id, {
+      userId: user?.id,
+      tenantId: user?.tenantId,
+    });
   }
 }

@@ -5,6 +5,11 @@ import { Prisma, WorkOrderPriority, WorkOrderTaskStatus } from '@prisma/client';
 import { CreateWorkOrderDto } from './dto/create-work-order.dto';
 import { UpdateWorkOrderDto } from './dto/update-work-order.dto';
 
+type ActorContext = {
+  userId?: string | null;
+  tenantId?: string | null;
+};
+
 @Injectable()
 export class WorkOrdersService {
   private readonly logger = new Logger(WorkOrdersService.name);
@@ -329,17 +334,21 @@ export class WorkOrdersService {
     });
   }
 
-  async addComment(id: string, dto: { content: string; isInternal?: boolean; kind?: string }) {
+  async addComment(
+    id: string,
+    dto: { content: string; isInternal?: boolean; kind?: string },
+    actor: ActorContext = {},
+  ) {
     const workOrder = await this.prisma.workOrder.findFirst({
       where: { id, deletedAt: null },
-      select: { id: true },
+      select: { id: true, tenantId: true, createdBy: true },
     });
     if (!workOrder) throw new NotFoundException('OT no encontrada');
 
     const content =
       dto.kind === 'diagnostic' ? `[DX] ${dto.content.trim()}` : dto.content.trim();
-    const userId = this.context.getUserId();
-    const tenantId = this.context.getTenantId();
+    const userId = actor.userId || this.context.getUserId() || workOrder.createdBy || undefined;
+    const tenantId = actor.tenantId || this.context.getTenantId() || workOrder.tenantId;
     if (!userId) throw new BadRequestException('Usuario requerido');
     if (!tenantId) throw new BadRequestException('Tenant requerido');
     return this.prisma.workOrderComment.create({
@@ -391,14 +400,14 @@ export class WorkOrdersService {
     });
   }
 
-  async addTask(id: string, dto: { title: string; description?: string }) {
+  async addTask(id: string, dto: { title: string; description?: string }, actor: ActorContext = {}) {
     const workOrder = await this.prisma.workOrder.findFirst({
       where: { id, deletedAt: null },
-      select: { id: true },
+      select: { id: true, tenantId: true },
     });
     if (!workOrder) throw new NotFoundException('OT no encontrada');
 
-    const tenantId = this.context.getTenantId();
+    const tenantId = actor.tenantId || this.context.getTenantId() || workOrder.tenantId;
     if (!tenantId) throw new BadRequestException('Tenant requerido');
     return this.prisma.workOrderTask.create({
       data: {
@@ -554,10 +563,11 @@ export class WorkOrdersService {
       unitPrice: number;
       discountPercent?: number;
     },
+    actor: ActorContext = {},
   ) {
     const workOrder = await this.prisma.workOrder.findFirst({
       where: { id, deletedAt: null },
-      select: { id: true },
+      select: { id: true, tenantId: true },
     });
     if (!workOrder) throw new NotFoundException('OT no encontrada');
 
@@ -572,7 +582,8 @@ export class WorkOrdersService {
     }
 
     const totals = this.calcTotalsForItem(dto);
-    const tenantId = this.context.getTenantId();
+    const tenantId = actor.tenantId || this.context.getTenantId() || workOrder.tenantId;
+    const userId = actor.userId || this.context.getUserId() || undefined;
     if (!tenantId) throw new BadRequestException('Tenant requerido');
     const created = await this.prisma.workOrderItem.create({
       data: {
@@ -588,7 +599,7 @@ export class WorkOrdersService {
         discountPercent: dto.discountPercent || 0,
         totalCost: totals.totalCost,
         totalPrice: totals.totalPrice,
-        addedBy: this.context.getUserId(),
+        addedBy: userId,
       },
     });
 
@@ -656,8 +667,8 @@ export class WorkOrdersService {
     return { id: itemId };
   }
 
-  create(dto: CreateWorkOrderDto) {
-    const tenantId = this.context.getTenantId();
+  create(dto: CreateWorkOrderDto, actor: ActorContext = {}) {
+    const tenantId = actor.tenantId || this.context.getTenantId();
     if (!tenantId) throw new BadRequestException('Tenant requerido');
     return this.prisma.$transaction(async (tx) => {
       let orderNumber = dto.orderNumber?.trim();
@@ -734,12 +745,15 @@ export class WorkOrdersService {
         data: aggregates,
       });
     }
-    return this.get(id);
+    const tenantId = this.context.getTenantId() || undefined;
+    const refreshed = await this.getViaSql(id, tenantId);
+    if (!refreshed) throw new NotFoundException('OT no encontrada');
+    return refreshed;
   }
 
-  async remove(id: string) {
-    const tenantId = this.context.getTenantId();
-    const userId = this.context.getUserId();
+  async remove(id: string, actor: ActorContext = {}) {
+    const tenantId = actor.tenantId || this.context.getTenantId();
+    const userId = actor.userId || this.context.getUserId();
     if (!tenantId || !userId) {
       throw new BadRequestException('Contexto inválido');
     }
@@ -779,9 +793,9 @@ export class WorkOrdersService {
     return { id };
   }
 
-  async deliver(id: string) {
-    const tenantId = this.context.getTenantId();
-    const userId = this.context.getUserId();
+  async deliver(id: string, actor: ActorContext = {}) {
+    const tenantId = actor.tenantId || this.context.getTenantId();
+    const userId = actor.userId || this.context.getUserId();
     if (!tenantId) throw new BadRequestException('Tenant requerido');
 
     const existing = await this.prisma.workOrder.findFirst({

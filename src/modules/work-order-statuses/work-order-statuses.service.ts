@@ -57,8 +57,8 @@ export class WorkOrderStatusesService {
     });
   }
 
-  async list() {
-    const tenantId = this.context.getTenantId();
+  async list(tenantIdFromUser?: string | null) {
+    const tenantId = tenantIdFromUser || this.context.getTenantId();
     if (!tenantId) throw new BadRequestException('Tenant requerido');
 
     await this.ensureRequiredStatuses(tenantId);
