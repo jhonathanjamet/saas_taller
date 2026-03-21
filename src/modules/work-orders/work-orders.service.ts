@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RequestContextService } from '../../common/request-context/request-context.service';
-import { Prisma, WorkOrderPriority, WorkOrderTaskStatus, WorkOrderType } from '@prisma/client';
+import { Prisma, WorkOrderPriority, WorkOrderTaskStatus } from '@prisma/client';
 import { CreateWorkOrderDto } from './dto/create-work-order.dto';
 import { UpdateWorkOrderDto } from './dto/update-work-order.dto';
 
@@ -739,9 +739,7 @@ export class WorkOrdersService {
       ...(dto.priority !== undefined
         ? { priority: dto.priority as WorkOrderPriority }
         : {}),
-      ...(dto.orderType !== undefined
-        ? { orderType: dto.orderType as WorkOrderType }
-        : {}),
+      ...(dto.orderType !== undefined ? { orderType: dto.orderType } : {}),
       ...(dto.channel !== undefined ? { channel: dto.channel } : {}),
       ...(dto.initialDiagnosis !== undefined
         ? { initialDiagnosis: dto.initialDiagnosis }
