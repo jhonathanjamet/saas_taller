@@ -223,6 +223,56 @@ export class WorkOrdersService {
     };
   }
 
+  private async updateViaSql(
+    id: string,
+    dto: UpdateWorkOrderDto,
+    tenantId?: string,
+  ): Promise<void> {
+    const where: string[] = ['id::text = $1', 'deleted_at IS NULL'];
+    const params: Array<string | number | boolean | Date | null> = [id];
+    if (tenantId) {
+      params.push(tenantId);
+      where.push(`tenant_id::text = $${params.length}`);
+    }
+
+    const setParts: string[] = [];
+    const addSet = (column: string, value: string | number | boolean | Date | null) => {
+      params.push(value);
+      setParts.push(`${column} = $${params.length}`);
+    };
+
+    if (dto.orderNumber !== undefined) addSet('order_number', dto.orderNumber);
+    if (dto.branchId !== undefined) addSet('branch_id', dto.branchId);
+    if (dto.customerId !== undefined) addSet('customer_id', dto.customerId);
+    if (dto.assetId !== undefined) addSet('asset_id', dto.assetId);
+    if (dto.statusId !== undefined) addSet('status_id', dto.statusId);
+    if (dto.priority !== undefined) addSet('priority', dto.priority);
+    if (dto.orderType !== undefined) addSet('order_type', dto.orderType);
+    if (dto.channel !== undefined) addSet('channel', dto.channel);
+    if (dto.initialDiagnosis !== undefined) addSet('initial_diagnosis', dto.initialDiagnosis);
+    if (dto.technicalDiagnosis !== undefined) addSet('technical_diagnosis', dto.technicalDiagnosis);
+    if (dto.clientNotes !== undefined) addSet('client_notes', dto.clientNotes);
+    if (dto.internalNotes !== undefined) addSet('internal_notes', dto.internalNotes);
+    if (dto.warrantyTerms !== undefined) addSet('warranty_terms', dto.warrantyTerms);
+    if (dto.promisedAt !== undefined) {
+      addSet('promised_at', dto.promisedAt ? new Date(dto.promisedAt) : null);
+    }
+    if (dto.discountAmount !== undefined) addSet('discount_amount', dto.discountAmount);
+    if (dto.quoteApproved !== undefined) {
+      addSet('quote_approved', dto.quoteApproved);
+      addSet('quote_approved_at', dto.quoteApproved ? new Date() : null);
+    }
+
+    if (!setParts.length) return;
+    setParts.push('updated_at = NOW()');
+
+    const sql = `UPDATE work_order SET ${setParts.join(', ')} WHERE ${where.join(' AND ')}`;
+    const affected = await this.prisma.$executeRawUnsafe(sql, ...params);
+    if (!affected) {
+      throw new NotFoundException('OT no encontrada');
+    }
+  }
+
   async list() {
     const tenantId = this.context.getTenantId();
     try {
@@ -724,68 +774,87 @@ export class WorkOrdersService {
 
   async update(id: string, dto: UpdateWorkOrderDto, actor: ActorContext = {}) {
     const tenantId = actor.tenantId || this.context.getTenantId() || undefined;
-    const existing = await this.prisma.workOrder.findFirst({
-      where: { id, deletedAt: null, ...(tenantId ? { tenantId } : {}) },
-      select: { id: true, tenantId: true },
-    });
-    if (!existing) throw new NotFoundException('OT no encontrada');
+    let existing:
+      | {
+          id: string;
+          tenantId: string;
+        }
+      | null = null;
 
-    const data: Prisma.WorkOrderUncheckedUpdateInput = {
-      ...(dto.orderNumber !== undefined ? { orderNumber: dto.orderNumber } : {}),
-      ...(dto.branchId !== undefined ? { branchId: dto.branchId } : {}),
-      ...(dto.customerId !== undefined ? { customerId: dto.customerId } : {}),
-      ...(dto.assetId !== undefined ? { assetId: dto.assetId } : {}),
-      ...(dto.statusId !== undefined ? { statusId: dto.statusId } : {}),
-      ...(dto.priority !== undefined
-        ? { priority: dto.priority as WorkOrderPriority }
-        : {}),
-      ...(dto.orderType !== undefined ? { orderType: dto.orderType } : {}),
-      ...(dto.channel !== undefined ? { channel: dto.channel } : {}),
-      ...(dto.initialDiagnosis !== undefined
-        ? { initialDiagnosis: dto.initialDiagnosis }
-        : {}),
-      ...(dto.technicalDiagnosis !== undefined
-        ? { technicalDiagnosis: dto.technicalDiagnosis }
-        : {}),
-      ...(dto.clientNotes !== undefined ? { clientNotes: dto.clientNotes } : {}),
-      ...(dto.internalNotes !== undefined ? { internalNotes: dto.internalNotes } : {}),
-      ...(dto.warrantyTerms !== undefined ? { warrantyTerms: dto.warrantyTerms } : {}),
-      ...(dto.promisedAt !== undefined
-        ? { promisedAt: dto.promisedAt ? new Date(dto.promisedAt) : null }
-        : {}),
-      ...(dto.discountAmount !== undefined ? { discountAmount: dto.discountAmount } : {}),
-      ...(dto.quoteApproved !== undefined ? { quoteApproved: dto.quoteApproved } : {}),
-    };
-
-    if (dto.quoteApproved !== undefined) {
-      data.quoteApprovedAt = dto.quoteApproved ? new Date() : null;
-    }
-
-    await this.prisma.workOrder.update({
-      where: { id: existing.id },
-      data,
-    });
-
-    if (dto.discountAmount !== undefined) {
-      const items = await this.prisma.workOrderItem.findMany({
-        where: { workOrderId: existing.id },
+    try {
+      existing = await this.prisma.workOrder.findFirst({
+        where: { id, deletedAt: null, ...(tenantId ? { tenantId } : {}) },
+        select: { id: true, tenantId: true },
       });
-      const taxRate = await this.resolveTaxRate(existing.id);
-      const aggregates = this.computeTotals(
-        items.map((item) => ({
-          itemType: item.itemType,
-          totalPrice: Number(item.totalPrice || 0),
-          totalCost: Number(item.totalCost || 0),
-        })),
-        Number(dto.discountAmount || 0),
-        taxRate,
-      );
+      if (!existing) throw new NotFoundException('OT no encontrada');
+
+      const data: Prisma.WorkOrderUncheckedUpdateInput = {
+        ...(dto.orderNumber !== undefined ? { orderNumber: dto.orderNumber } : {}),
+        ...(dto.branchId !== undefined ? { branchId: dto.branchId } : {}),
+        ...(dto.customerId !== undefined ? { customerId: dto.customerId } : {}),
+        ...(dto.assetId !== undefined ? { assetId: dto.assetId } : {}),
+        ...(dto.statusId !== undefined ? { statusId: dto.statusId } : {}),
+        ...(dto.priority !== undefined
+          ? { priority: dto.priority as WorkOrderPriority }
+          : {}),
+        ...(dto.orderType !== undefined ? { orderType: dto.orderType } : {}),
+        ...(dto.channel !== undefined ? { channel: dto.channel } : {}),
+        ...(dto.initialDiagnosis !== undefined
+          ? { initialDiagnosis: dto.initialDiagnosis }
+          : {}),
+        ...(dto.technicalDiagnosis !== undefined
+          ? { technicalDiagnosis: dto.technicalDiagnosis }
+          : {}),
+        ...(dto.clientNotes !== undefined ? { clientNotes: dto.clientNotes } : {}),
+        ...(dto.internalNotes !== undefined ? { internalNotes: dto.internalNotes } : {}),
+        ...(dto.warrantyTerms !== undefined ? { warrantyTerms: dto.warrantyTerms } : {}),
+        ...(dto.promisedAt !== undefined
+          ? { promisedAt: dto.promisedAt ? new Date(dto.promisedAt) : null }
+          : {}),
+        ...(dto.discountAmount !== undefined ? { discountAmount: dto.discountAmount } : {}),
+        ...(dto.quoteApproved !== undefined ? { quoteApproved: dto.quoteApproved } : {}),
+      };
+
+      if (dto.quoteApproved !== undefined) {
+        data.quoteApprovedAt = dto.quoteApproved ? new Date() : null;
+      }
+
       await this.prisma.workOrder.update({
         where: { id: existing.id },
-        data: aggregates,
+        data,
       });
+
+      if (dto.discountAmount !== undefined) {
+        const items = await this.prisma.workOrderItem.findMany({
+          where: { workOrderId: existing.id },
+        });
+        const taxRate = await this.resolveTaxRate(existing.id);
+        const aggregates = this.computeTotals(
+          items.map((item) => ({
+            itemType: item.itemType,
+            totalPrice: Number(item.totalPrice || 0),
+            totalCost: Number(item.totalCost || 0),
+          })),
+          Number(dto.discountAmount || 0),
+          taxRate,
+        );
+        await this.prisma.workOrder.update({
+          where: { id: existing.id },
+          data: aggregates,
+        });
+      }
+    } catch (error) {
+      if (!this.isUuidDataError(error)) {
+        throw error;
+      }
+
+      await this.updateViaSql(id, dto, tenantId);
+      const resolved = await this.getViaSql(id, tenantId);
+      if (!resolved) throw new NotFoundException('OT no encontrada');
+      return resolved;
     }
 
+    if (!existing) throw new NotFoundException('OT no encontrada');
     const refreshed = await this.getViaSql(existing.id, existing.tenantId);
     if (!refreshed) throw new NotFoundException('OT no encontrada');
     return refreshed;
