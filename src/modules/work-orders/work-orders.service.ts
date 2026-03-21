@@ -1,7 +1,7 @@
 import { Injectable, NotFoundException, BadRequestException, Logger } from '@nestjs/common';
 import { PrismaService } from '../../infra/prisma/prisma.service';
 import { RequestContextService } from '../../common/request-context/request-context.service';
-import { Prisma, WorkOrderPriority, WorkOrderTaskStatus } from '@prisma/client';
+import { Prisma, WorkOrderPriority, WorkOrderTaskStatus, WorkOrderType } from '@prisma/client';
 import { CreateWorkOrderDto } from './dto/create-work-order.dto';
 import { UpdateWorkOrderDto } from './dto/update-work-order.dto';
 
@@ -722,15 +722,57 @@ export class WorkOrdersService {
     });
   }
 
-  async update(id: string, dto: UpdateWorkOrderDto) {
-    const data: any = { ...dto };
+  async update(id: string, dto: UpdateWorkOrderDto, actor: ActorContext = {}) {
+    const tenantId = actor.tenantId || this.context.getTenantId() || undefined;
+    const existing = await this.prisma.workOrder.findFirst({
+      where: { id, deletedAt: null, ...(tenantId ? { tenantId } : {}) },
+      select: { id: true, tenantId: true },
+    });
+    if (!existing) throw new NotFoundException('OT no encontrada');
+
+    const data: Prisma.WorkOrderUncheckedUpdateInput = {
+      ...(dto.orderNumber !== undefined ? { orderNumber: dto.orderNumber } : {}),
+      ...(dto.branchId !== undefined ? { branchId: dto.branchId } : {}),
+      ...(dto.customerId !== undefined ? { customerId: dto.customerId } : {}),
+      ...(dto.assetId !== undefined ? { assetId: dto.assetId } : {}),
+      ...(dto.statusId !== undefined ? { statusId: dto.statusId } : {}),
+      ...(dto.priority !== undefined
+        ? { priority: dto.priority as WorkOrderPriority }
+        : {}),
+      ...(dto.orderType !== undefined
+        ? { orderType: dto.orderType as WorkOrderType }
+        : {}),
+      ...(dto.channel !== undefined ? { channel: dto.channel } : {}),
+      ...(dto.initialDiagnosis !== undefined
+        ? { initialDiagnosis: dto.initialDiagnosis }
+        : {}),
+      ...(dto.technicalDiagnosis !== undefined
+        ? { technicalDiagnosis: dto.technicalDiagnosis }
+        : {}),
+      ...(dto.clientNotes !== undefined ? { clientNotes: dto.clientNotes } : {}),
+      ...(dto.internalNotes !== undefined ? { internalNotes: dto.internalNotes } : {}),
+      ...(dto.warrantyTerms !== undefined ? { warrantyTerms: dto.warrantyTerms } : {}),
+      ...(dto.promisedAt !== undefined
+        ? { promisedAt: dto.promisedAt ? new Date(dto.promisedAt) : null }
+        : {}),
+      ...(dto.discountAmount !== undefined ? { discountAmount: dto.discountAmount } : {}),
+      ...(dto.quoteApproved !== undefined ? { quoteApproved: dto.quoteApproved } : {}),
+    };
+
     if (dto.quoteApproved !== undefined) {
       data.quoteApprovedAt = dto.quoteApproved ? new Date() : null;
     }
-    await this.prisma.workOrder.updateMany({ where: { id }, data });
+
+    await this.prisma.workOrder.update({
+      where: { id: existing.id },
+      data,
+    });
+
     if (dto.discountAmount !== undefined) {
-      const items = await this.prisma.workOrderItem.findMany({ where: { workOrderId: id } });
-      const taxRate = await this.resolveTaxRate(id);
+      const items = await this.prisma.workOrderItem.findMany({
+        where: { workOrderId: existing.id },
+      });
+      const taxRate = await this.resolveTaxRate(existing.id);
       const aggregates = this.computeTotals(
         items.map((item) => ({
           itemType: item.itemType,
@@ -740,13 +782,13 @@ export class WorkOrdersService {
         Number(dto.discountAmount || 0),
         taxRate,
       );
-      await this.prisma.workOrder.updateMany({
-        where: { id },
+      await this.prisma.workOrder.update({
+        where: { id: existing.id },
         data: aggregates,
       });
     }
-    const tenantId = this.context.getTenantId() || undefined;
-    const refreshed = await this.getViaSql(id, tenantId);
+
+    const refreshed = await this.getViaSql(existing.id, existing.tenantId);
     if (!refreshed) throw new NotFoundException('OT no encontrada');
     return refreshed;
   }

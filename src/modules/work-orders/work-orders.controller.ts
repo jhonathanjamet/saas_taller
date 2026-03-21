@@ -159,8 +159,12 @@ export class WorkOrdersController {
 
   @Patch(':id')
   @RequirePermission('work_orders:update')
-  update(@Param('id') id: string, @Body() dto: UpdateWorkOrderDto) {
-    return this.workOrders.update(id, dto);
+  update(
+    @Param('id') id: string,
+    @Body() dto: UpdateWorkOrderDto,
+    @CurrentUser() user?: AuthUser,
+  ) {
+    return this.workOrders.update(id, dto, { tenantId: user?.tenantId });
   }
 
   @Delete(':id')
