@@ -844,14 +844,27 @@ export class WorkOrdersService {
         });
       }
     } catch (error) {
-      if (!this.isUuidDataError(error)) {
+      if (error instanceof NotFoundException) {
         throw error;
       }
 
-      await this.updateViaSql(id, dto, tenantId);
-      const resolved = await this.getViaSql(id, tenantId);
-      if (!resolved) throw new NotFoundException('OT no encontrada');
-      return resolved;
+      this.logger.error(
+        'update() falló con Prisma ORM, intentando fallback SQL',
+        error instanceof Error ? error.stack : String(error),
+      );
+
+      try {
+        await this.updateViaSql(id, dto, tenantId);
+        const resolved = await this.getViaSql(id, tenantId);
+        if (!resolved) throw new NotFoundException('OT no encontrada');
+        return resolved;
+      } catch (fallbackError) {
+        this.logger.error(
+          'update() fallback SQL también falló',
+          fallbackError instanceof Error ? fallbackError.stack : String(fallbackError),
+        );
+        throw error;
+      }
     }
 
     if (!existing) throw new NotFoundException('OT no encontrada');
