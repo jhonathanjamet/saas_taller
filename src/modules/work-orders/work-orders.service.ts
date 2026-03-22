@@ -355,16 +355,21 @@ export class WorkOrdersService {
     }
 
     const setParts: string[] = [];
-    const addSet = (column: string, value: string | number | boolean | Date | null) => {
+    const addSet = (
+      column: string,
+      value: string | number | boolean | Date | null,
+      cast?: 'uuid',
+    ) => {
       params.push(value);
-      setParts.push(`${column} = $${params.length}`);
+      const placeholder = `$${params.length}${cast ? `::${cast}` : ''}`;
+      setParts.push(`${column} = ${placeholder}`);
     };
 
     if (dto.orderNumber !== undefined) addSet('order_number', dto.orderNumber);
-    if (dto.branchId !== undefined) addSet('branch_id', dto.branchId);
-    if (dto.customerId !== undefined) addSet('customer_id', dto.customerId);
-    if (dto.assetId !== undefined) addSet('asset_id', dto.assetId);
-    if (dto.statusId !== undefined) addSet('status_id', dto.statusId);
+    if (dto.branchId !== undefined) addSet('branch_id', dto.branchId, 'uuid');
+    if (dto.customerId !== undefined) addSet('customer_id', dto.customerId, 'uuid');
+    if (dto.assetId !== undefined) addSet('asset_id', dto.assetId, 'uuid');
+    if (dto.statusId !== undefined) addSet('status_id', dto.statusId, 'uuid');
     if (dto.priority !== undefined) addSet('priority', dto.priority);
     if (dto.orderType !== undefined) addSet('order_type', dto.orderType);
     if (dto.channel !== undefined) addSet('channel', dto.channel);
@@ -917,6 +922,12 @@ export class WorkOrdersService {
       const message = String(error?.message || '').toLowerCase();
       if (message.includes('invalid input syntax for type uuid')) {
         throw new BadRequestException('Estado inválido (UUID incorrecto)');
+      }
+      if (
+        (message.includes('is of type uuid') && message.includes('status_id')) ||
+        (message.includes('cannot cast type') && message.includes('uuid'))
+      ) {
+        throw new BadRequestException('Estado inválido (formato incompatible)');
       }
       if (message.includes('violates foreign key constraint') && message.includes('status_id')) {
         throw new BadRequestException('Estado no existe para este taller');
