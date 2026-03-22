@@ -10,6 +10,8 @@ type ActorContext = {
   tenantId?: string | null;
 };
 
+const VALID_ORDER_TYPES = new Set(['entrada', 'domicilio', 'reparacion', 'salida']);
+
 @Injectable()
 export class WorkOrdersService {
   private readonly logger = new Logger(WorkOrdersService.name);
@@ -29,6 +31,54 @@ export class WorkOrdersService {
     const code = (error as { code?: string }).code;
     const message = String((error as { message?: string }).message || '');
     return code === 'P2023' || message.toLowerCase().includes('error creating uuid');
+  }
+
+  private isUuidLike(value: string): boolean {
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(
+      value,
+    );
+  }
+
+  private normalizeText(value: string): string {
+    return value
+      .normalize('NFD')
+      .replace(/[\u0300-\u036f]/g, '')
+      .toLowerCase()
+      .trim();
+  }
+
+  private async resolveStatusIdInput(input: string, tenantId: string): Promise<string> {
+    const candidate = String(input || '').trim();
+    if (!candidate) {
+      throw new BadRequestException('Estado inválido');
+    }
+
+    if (this.isUuidLike(candidate)) {
+      const byId = await this.prisma.workOrderStatus.findFirst({
+        where: { id: candidate, tenantId },
+        select: { id: true },
+      });
+      if (!byId) {
+        throw new BadRequestException('Estado no existe para este taller');
+      }
+      return byId.id;
+    }
+
+    const normalized = this.normalizeText(candidate);
+    const byCode = await this.prisma.workOrderStatus.findFirst({
+      where: { tenantId, code: { equals: normalized, mode: 'insensitive' } },
+      select: { id: true },
+    });
+    if (byCode) return byCode.id;
+
+    const statusList = await this.prisma.workOrderStatus.findMany({
+      where: { tenantId },
+      select: { id: true, name: true },
+    });
+    const byName = statusList.find((status) => this.normalizeText(status.name) === normalized);
+    if (byName) return byName.id;
+
+    throw new BadRequestException('Estado no válido para este taller');
   }
 
   private async listViaSql(tenantId: string | undefined, history: boolean) {
@@ -840,9 +890,35 @@ export class WorkOrdersService {
     const existing = await this.getViaSql(id, tenantId);
     if (!existing) throw new NotFoundException('OT no encontrada');
 
-    await this.updateViaSql(id, dto, tenantId);
+    const resolvedTenantId = tenantId || existing.tenantId;
+    const safeDto: UpdateWorkOrderDto = { ...dto };
 
-    if (dto.discountAmount !== undefined) {
+    if (safeDto.statusId !== undefined) {
+      safeDto.statusId = await this.resolveStatusIdInput(String(safeDto.statusId), resolvedTenantId);
+    }
+
+    if (safeDto.orderType !== undefined) {
+      const normalizedType = this.normalizeText(String(safeDto.orderType));
+      if (!VALID_ORDER_TYPES.has(normalizedType)) {
+        throw new BadRequestException('Área de orden inválida');
+      }
+      safeDto.orderType = normalizedType;
+    }
+
+    try {
+      await this.updateViaSql(id, safeDto, tenantId);
+    } catch (error: any) {
+      const message = String(error?.message || '').toLowerCase();
+      if (message.includes('invalid input syntax for type uuid')) {
+        throw new BadRequestException('Estado inválido (UUID incorrecto)');
+      }
+      if (message.includes('violates foreign key constraint') && message.includes('status_id')) {
+        throw new BadRequestException('Estado no existe para este taller');
+      }
+      throw error;
+    }
+
+    if (safeDto.discountAmount !== undefined) {
       try {
         const items = await this.prisma.workOrderItem.findMany({
           where: { workOrderId: existing.id },
@@ -854,7 +930,7 @@ export class WorkOrdersService {
             totalPrice: Number(item.totalPrice || 0),
             totalCost: Number(item.totalCost || 0),
           })),
-          Number(dto.discountAmount || 0),
+          Number(safeDto.discountAmount || 0),
           taxRate,
         );
         await this.prisma.workOrder.updateMany({
