@@ -53,11 +53,24 @@ export class WorkOrdersService {
       throw new BadRequestException('Estado inválido');
     }
 
+    const rows = await this.prisma.$queryRawUnsafe<Array<{ id: string; code: string; name: string }>>(
+      `
+      SELECT
+        id::text AS id,
+        code,
+        name
+      FROM work_order_status
+      WHERE tenant_id::text = $1
+      `,
+      tenantId,
+    );
+
+    if (!rows.length) {
+      throw new BadRequestException('No hay estados configurados para este taller');
+    }
+
     if (this.isUuidLike(candidate)) {
-      const byId = await this.prisma.workOrderStatus.findFirst({
-        where: { id: candidate, tenantId },
-        select: { id: true },
-      });
+      const byId = rows.find((row) => row.id === candidate);
       if (!byId) {
         throw new BadRequestException('Estado no existe para este taller');
       }
@@ -65,17 +78,10 @@ export class WorkOrdersService {
     }
 
     const normalized = this.normalizeText(candidate);
-    const byCode = await this.prisma.workOrderStatus.findFirst({
-      where: { tenantId, code: { equals: normalized, mode: 'insensitive' } },
-      select: { id: true },
-    });
+    const byCode = rows.find((row) => this.normalizeText(row.code) === normalized);
     if (byCode) return byCode.id;
 
-    const statusList = await this.prisma.workOrderStatus.findMany({
-      where: { tenantId },
-      select: { id: true, name: true },
-    });
-    const byName = statusList.find((status) => this.normalizeText(status.name) === normalized);
+    const byName = rows.find((row) => this.normalizeText(row.name) === normalized);
     if (byName) return byName.id;
 
     throw new BadRequestException('Estado no válido para este taller');
