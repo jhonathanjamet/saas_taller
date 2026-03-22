@@ -159,35 +159,98 @@ export class WorkOrdersService {
       LIMIT 1
     `;
 
-    const rows = await this.prisma.$queryRawUnsafe<
-      Array<{
-        id: string;
-        tenantId: string;
-        branchId: string;
-        orderNumber: string;
-        customerId: string;
-        assetId: string | null;
-        statusId: string;
-        priority: string | null;
-        orderType: string | null;
-        internalNotes: string | null;
-        initialDiagnosis: string | null;
-        technicalDiagnosis: string | null;
-        clientNotes: string | null;
-        quoteApproved: boolean | null;
-        receivedAt: Date | null;
-        promisedAt: Date | null;
-        subtotalProducts: Prisma.Decimal | number | null;
-        subtotalServices: Prisma.Decimal | number | null;
-        discountAmount: Prisma.Decimal | number | null;
-        taxAmount: Prisma.Decimal | number | null;
-        totalAmount: Prisma.Decimal | number | null;
-        internalCost: Prisma.Decimal | number | null;
-        deliveredAt: Date | null;
-        createdAt: Date;
-        updatedAt: Date;
-      }>
-    >(sql, ...params);
+    type FullRow = {
+      id: string;
+      tenantId: string;
+      branchId: string;
+      orderNumber: string;
+      customerId: string;
+      assetId: string | null;
+      statusId: string;
+      priority: string | null;
+      orderType: string | null;
+      internalNotes: string | null;
+      initialDiagnosis: string | null;
+      technicalDiagnosis: string | null;
+      clientNotes: string | null;
+      quoteApproved: boolean | null;
+      receivedAt: Date | null;
+      promisedAt: Date | null;
+      subtotalProducts: Prisma.Decimal | number | null;
+      subtotalServices: Prisma.Decimal | number | null;
+      discountAmount: Prisma.Decimal | number | null;
+      taxAmount: Prisma.Decimal | number | null;
+      totalAmount: Prisma.Decimal | number | null;
+      internalCost: Prisma.Decimal | number | null;
+      deliveredAt: Date | null;
+      createdAt: Date;
+      updatedAt: Date;
+    };
+
+    const fallbackSql = `
+      SELECT
+        wo.id::text AS id,
+        wo.tenant_id::text AS "tenantId",
+        wo.branch_id::text AS "branchId",
+        wo.order_number AS "orderNumber",
+        wo.customer_id::text AS "customerId",
+        wo.asset_id::text AS "assetId",
+        wo.status_id::text AS "statusId",
+        wo.priority::text AS priority,
+        wo.order_type AS "orderType",
+        wo.internal_notes AS "internalNotes",
+        wo.initial_diagnosis AS "initialDiagnosis",
+        wo.technical_diagnosis AS "technicalDiagnosis",
+        wo.client_notes AS "clientNotes",
+        wo.delivered_at AS "deliveredAt",
+        wo.created_at AS "createdAt",
+        wo.updated_at AS "updatedAt"
+      FROM work_order wo
+      WHERE ${where.join(' AND ')}
+      LIMIT 1
+    `;
+
+    const rows: FullRow[] = await this.prisma
+      .$queryRawUnsafe<FullRow[]>(sql, ...params)
+      .catch(async (error) => {
+        this.logger.warn(
+          `getViaSql(${id}) fallback por columnas legacy: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
+        );
+        const minimal = await this.prisma.$queryRawUnsafe<
+          Array<{
+            id: string;
+            tenantId: string;
+            branchId: string;
+            orderNumber: string;
+            customerId: string;
+            assetId: string | null;
+            statusId: string;
+            priority: string | null;
+            orderType: string | null;
+            internalNotes: string | null;
+            initialDiagnosis: string | null;
+            technicalDiagnosis: string | null;
+            clientNotes: string | null;
+            deliveredAt: Date | null;
+            createdAt: Date;
+            updatedAt: Date;
+          }>
+        >(fallbackSql, ...params);
+        return minimal.map((row) => ({
+          ...row,
+          quoteApproved: false,
+          receivedAt: null,
+          promisedAt: null,
+          subtotalProducts: 0,
+          subtotalServices: 0,
+          discountAmount: 0,
+          taxAmount: 0,
+          totalAmount: 0,
+          internalCost: 0,
+        }));
+      });
 
     if (!rows.length) return null;
     const row = rows[0];
