@@ -774,57 +774,13 @@ export class WorkOrdersService {
 
   async update(id: string, dto: UpdateWorkOrderDto, actor: ActorContext = {}) {
     const tenantId = actor.tenantId || this.context.getTenantId() || undefined;
-    let existing:
-      | {
-          id: string;
-          tenantId: string;
-        }
-      | null = null;
+    const existing = await this.getViaSql(id, tenantId);
+    if (!existing) throw new NotFoundException('OT no encontrada');
 
-    try {
-      existing = await this.prisma.workOrder.findFirst({
-        where: { id, deletedAt: null, ...(tenantId ? { tenantId } : {}) },
-        select: { id: true, tenantId: true },
-      });
-      if (!existing) throw new NotFoundException('OT no encontrada');
+    await this.updateViaSql(id, dto, tenantId);
 
-      const data: Prisma.WorkOrderUncheckedUpdateInput = {
-        ...(dto.orderNumber !== undefined ? { orderNumber: dto.orderNumber } : {}),
-        ...(dto.branchId !== undefined ? { branchId: dto.branchId } : {}),
-        ...(dto.customerId !== undefined ? { customerId: dto.customerId } : {}),
-        ...(dto.assetId !== undefined ? { assetId: dto.assetId } : {}),
-        ...(dto.statusId !== undefined ? { statusId: dto.statusId } : {}),
-        ...(dto.priority !== undefined
-          ? { priority: dto.priority as WorkOrderPriority }
-          : {}),
-        ...(dto.orderType !== undefined ? { orderType: dto.orderType } : {}),
-        ...(dto.channel !== undefined ? { channel: dto.channel } : {}),
-        ...(dto.initialDiagnosis !== undefined
-          ? { initialDiagnosis: dto.initialDiagnosis }
-          : {}),
-        ...(dto.technicalDiagnosis !== undefined
-          ? { technicalDiagnosis: dto.technicalDiagnosis }
-          : {}),
-        ...(dto.clientNotes !== undefined ? { clientNotes: dto.clientNotes } : {}),
-        ...(dto.internalNotes !== undefined ? { internalNotes: dto.internalNotes } : {}),
-        ...(dto.warrantyTerms !== undefined ? { warrantyTerms: dto.warrantyTerms } : {}),
-        ...(dto.promisedAt !== undefined
-          ? { promisedAt: dto.promisedAt ? new Date(dto.promisedAt) : null }
-          : {}),
-        ...(dto.discountAmount !== undefined ? { discountAmount: dto.discountAmount } : {}),
-        ...(dto.quoteApproved !== undefined ? { quoteApproved: dto.quoteApproved } : {}),
-      };
-
-      if (dto.quoteApproved !== undefined) {
-        data.quoteApprovedAt = dto.quoteApproved ? new Date() : null;
-      }
-
-      await this.prisma.workOrder.update({
-        where: { id: existing.id },
-        data,
-      });
-
-      if (dto.discountAmount !== undefined) {
+    if (dto.discountAmount !== undefined) {
+      try {
         const items = await this.prisma.workOrderItem.findMany({
           where: { workOrderId: existing.id },
         });
@@ -838,37 +794,20 @@ export class WorkOrdersService {
           Number(dto.discountAmount || 0),
           taxRate,
         );
-        await this.prisma.workOrder.update({
-          where: { id: existing.id },
+        await this.prisma.workOrder.updateMany({
+          where: { id: existing.id, ...(tenantId ? { tenantId } : {}) },
           data: aggregates,
         });
-      }
-    } catch (error) {
-      if (error instanceof NotFoundException) {
-        throw error;
-      }
-
-      this.logger.error(
-        'update() falló con Prisma ORM, intentando fallback SQL',
-        error instanceof Error ? error.stack : String(error),
-      );
-
-      try {
-        await this.updateViaSql(id, dto, tenantId);
-        const resolved = await this.getViaSql(id, tenantId);
-        if (!resolved) throw new NotFoundException('OT no encontrada');
-        return resolved;
-      } catch (fallbackError) {
-        this.logger.error(
-          'update() fallback SQL también falló',
-          fallbackError instanceof Error ? fallbackError.stack : String(fallbackError),
+      } catch (error) {
+        this.logger.warn(
+          `update() no pudo recalcular totales OT ${existing.id}: ${
+            error instanceof Error ? error.message : String(error)
+          }`,
         );
-        throw error;
       }
     }
 
-    if (!existing) throw new NotFoundException('OT no encontrada');
-    const refreshed = await this.getViaSql(existing.id, existing.tenantId);
+    const refreshed = await this.getViaSql(existing.id, tenantId);
     if (!refreshed) throw new NotFoundException('OT no encontrada');
     return refreshed;
   }
