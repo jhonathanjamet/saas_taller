@@ -339,6 +339,7 @@ export default function OrdenDetallePage() {
   } | null>(null);
   const [showItemComposer, setShowItemComposer] = useState(false);
   const [showAdditionalModal, setShowAdditionalModal] = useState(false);
+  const [editingAdditionalItem, setEditingAdditionalItem] = useState<WorkOrderItem | null>(null);
   const [additionalKind, setAdditionalKind] = useState<'product' | 'service'>('product');
   const [additionalDescription, setAdditionalDescription] = useState('');
   const [additionalNetAmount, setAdditionalNetAmount] = useState(0);
@@ -1014,13 +1015,14 @@ export default function OrdenDetallePage() {
 
   const openEditItemMenuAction = (item: WorkOrderItem) => {
     if (!canEditQuote) return;
-    setEditingItemId(item.id);
-    setEditingItemDraft({
-      quantity: Number(item.quantity),
-      unitPrice: Number(item.unitPrice),
-      discountPercent: Number(item.discountPercent || 0),
-      description: item.description || '',
-    });
+    setEditingAdditionalItem(item);
+    const parsed = parseAdditionalDescription(item.description);
+    setAdditionalKind(parsed.kind);
+    setAdditionalDescription(parsed.text || '');
+    setAdditionalIvaPercent(0);
+    setAdditionalNetAmount(Number(item.unitPrice || 0));
+    setAdditionalError(null);
+    setShowAdditionalModal(true);
     setOpenItemMenuId(null);
     setItemMenuPosition(null);
   };
@@ -1624,6 +1626,7 @@ export default function OrdenDetallePage() {
                 className={`rounded-2xl border border-gray-200 px-4 py-1.5 sm:px-5 sm:py-2 ${itemType === 'additional' ? 'bg-sand' : 'bg-sand/40'}`}
                 onClick={() => {
                   setItemType('additional');
+                  setEditingAdditionalItem(null);
                   setAdditionalKind('product');
                   setAdditionalDescription('');
                   setAdditionalNetAmount(0);
@@ -2039,16 +2042,16 @@ export default function OrdenDetallePage() {
             <div className="rounded-2xl border border-gray-200 bg-white p-5 text-sm">
               <div className="grid gap-3 md:grid-cols-3">
                 <div className="flex items-center gap-3">
-                  <span className="whitespace-nowrap text-[20px] text-gray-600">Neto S/IVA</span>
+                  <span className="whitespace-nowrap text-base text-gray-600">Neto S/IVA</span>
                   <span className="h-px flex-1 border-b border-dotted border-gray-300" />
-                  <span className="whitespace-nowrap text-[20px] font-medium text-gray-700">{formatMoney(netoSinIva)}</span>
+                  <span className="whitespace-nowrap text-base font-medium text-gray-700">{formatMoney(netoSinIva)}</span>
                 </div>
                 <div className="flex items-center gap-2">
-                  <span className="text-[18px] text-gray-500">ℹ</span>
-                  <span className="whitespace-nowrap text-[20px] text-gray-600">Desc.Gral.</span>
+                  <span className="text-base text-gray-500">ℹ</span>
+                  <span className="whitespace-nowrap text-base text-gray-600">Desc.Gral.</span>
                   <span className="h-px flex-1 border-b border-dotted border-gray-300" />
                   <input
-                    className="w-24 rounded-md border border-gray-200 px-2 py-1 text-right text-[20px] text-gray-700"
+                    className="w-24 rounded-md border border-gray-200 px-2 py-1 text-right text-base text-gray-700"
                     type="number"
                     min="0"
                     value={generalDiscount}
@@ -2074,20 +2077,20 @@ export default function OrdenDetallePage() {
                   </button>
                 </div>
                 <div className="flex items-center gap-3">
-                  <span className="whitespace-nowrap text-[20px] text-gray-600">IVA</span>
+                  <span className="whitespace-nowrap text-base text-gray-600">IVA</span>
                   <span className="h-px flex-1 border-b border-dotted border-gray-300" />
-                  <span className="whitespace-nowrap text-[20px] font-medium text-gray-700">{formatMoney(ivaAmount)}</span>
+                  <span className="whitespace-nowrap text-base font-medium text-gray-700">{formatMoney(ivaAmount)}</span>
                 </div>
               </div>
             </div>
             <div className="rounded-2xl border border-gray-200 bg-white p-5 text-sm">
               <div className="flex items-center gap-3">
-                <span className="whitespace-nowrap text-[20px] text-gray-600">Subtotal C/IVA</span>
+                <span className="whitespace-nowrap text-base text-gray-600">Subtotal C/IVA</span>
                 <span className="h-px flex-1 border-b border-dotted border-gray-300" />
-                <span className="whitespace-nowrap text-[20px] font-medium text-gray-700">{formatMoney(totalWithIva)}</span>
+                <span className="whitespace-nowrap text-base font-medium text-gray-700">{formatMoney(totalWithIva)}</span>
               </div>
               <div className="mt-3 border-t border-gray-300 pt-3">
-                <div className="flex items-center justify-between text-[20px] font-semibold leading-none text-ink">
+                <div className="flex items-center justify-between text-base font-medium leading-none text-gray-700">
                   <span>Total</span>
                   <span>{formatMoney(totalWithIva)}</span>
                 </div>
@@ -2217,11 +2220,14 @@ export default function OrdenDetallePage() {
           <div className="fixed inset-0 z-[88] flex items-center justify-center bg-black/40 px-4 py-8">
             <div className="w-full max-w-3xl rounded-2xl border border-gray-200 bg-white p-4 shadow-2xl">
               <div className="flex items-center justify-between">
-                <h2 className="text-xl font-semibold text-ink">Creando Adicional</h2>
+                <h2 className="text-xl font-semibold text-ink">
+                  {editingAdditionalItem ? 'Actualizando Adicional' : 'Creando Adicional'}
+                </h2>
                 <button
                   className="text-3xl leading-none text-gray-400 hover:text-ink"
                   onClick={() => {
                     setAdditionalError(null);
+                    setEditingAdditionalItem(null);
                     setShowAdditionalModal(false);
                   }}
                 >
@@ -2308,6 +2314,7 @@ export default function OrdenDetallePage() {
                   className="rounded-xl bg-sand px-4 py-2 text-sm font-medium text-gray-700"
                   onClick={() => {
                     setAdditionalError(null);
+                    setEditingAdditionalItem(null);
                     setShowAdditionalModal(false);
                   }}
                 >
@@ -2324,19 +2331,36 @@ export default function OrdenDetallePage() {
                     try {
                       const prefix = ADDITIONAL_TYPE_PREFIX[additionalKind];
                       const storedDescription = `${prefix} ${additionalDescription.trim()}`.trim();
-                      const created = await apiRequest<WorkOrderItem>(`/work-orders/${targetOrderId}/items`, {
-                        method: 'POST',
-                        headers: { Authorization: `Bearer ${token}` },
-                        body: JSON.stringify({
-                          itemType: 'additional',
-                          description: storedDescription,
-                          quantity: 1,
-                          unitCost: additionalNetAmount,
-                          unitPrice: additionalTotalAmount,
-                          discountPercent: 0,
-                        }),
-                      });
-                      setItems((prev) => [...prev, created]);
+                      if (editingAdditionalItem) {
+                        const updated = await apiRequest<WorkOrderItem>(
+                          `/work-orders/${targetOrderId}/items/${editingAdditionalItem.id}`,
+                          {
+                            method: 'PATCH',
+                            headers: { Authorization: `Bearer ${token}` },
+                            body: JSON.stringify({
+                              description: storedDescription,
+                              quantity: Number(editingAdditionalItem.quantity || 1),
+                              unitPrice: additionalTotalAmount,
+                              discountPercent: 0,
+                            }),
+                          },
+                        );
+                        setItems((prev) => prev.map((i) => (i.id === editingAdditionalItem.id ? updated : i)));
+                      } else {
+                        const created = await apiRequest<WorkOrderItem>(`/work-orders/${targetOrderId}/items`, {
+                          method: 'POST',
+                          headers: { Authorization: `Bearer ${token}` },
+                          body: JSON.stringify({
+                            itemType: 'additional',
+                            description: storedDescription,
+                            quantity: 1,
+                            unitCost: additionalNetAmount,
+                            unitPrice: additionalTotalAmount,
+                            discountPercent: 0,
+                          }),
+                        });
+                        setItems((prev) => [...prev, created]);
+                      }
                       try {
                         const refreshed = await apiRequest<WorkOrder>(`/work-orders/${targetOrderId}`, {
                           headers: { Authorization: `Bearer ${token}` },
@@ -2350,6 +2374,7 @@ export default function OrdenDetallePage() {
                         });
                       }
                       setAdditionalError(null);
+                      setEditingAdditionalItem(null);
                       setShowAdditionalModal(false);
                     } catch (err: any) {
                       const message = err?.message || 'No se pudo guardar el adicional.';
@@ -2360,7 +2385,7 @@ export default function OrdenDetallePage() {
                     }
                   }}
                 >
-                  {savingAdditional ? 'Guardando...' : '💾 Guardar'}
+                  {savingAdditional ? 'Guardando...' : editingAdditionalItem ? '💾 Actualizar' : '💾 Guardar'}
                 </button>
               </div>
             </div>
