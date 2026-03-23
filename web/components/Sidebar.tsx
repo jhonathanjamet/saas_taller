@@ -256,7 +256,7 @@ export function Sidebar() {
         </div>
       </aside>
 
-      <aside className={`relative hidden shrink-0 bg-[#ececee] p-4 transition-all duration-200 lg:flex ${collapsed ? 'lg:w-[90px]' : 'lg:w-[308px]'}`}>
+      <aside className={`relative hidden shrink-0 bg-[#ececee] p-4 transition-all duration-700 ease-in-out lg:flex ${collapsed ? 'lg:w-[90px]' : 'lg:w-[308px]'}`}>
         <div className="flex h-full w-full flex-col rounded-[30px] border border-gray-200 bg-[#f6f6f7] p-4 shadow-sm">
           <button
             className={`absolute z-20 h-11 w-11 rounded-full bg-[#1f78c8] text-[30px] leading-none text-white shadow-lg ${collapsed ? 'left-[70px] top-[136px]' : 'left-[282px] top-[136px]'}`}
@@ -270,11 +270,11 @@ export function Sidebar() {
           {!collapsed ? (
             <div className="px-2 pt-1">
               <div className="flex items-center pt-1">
-                <img
-                  src="/branding/logonegro-color-transparent.png"
-                  alt="Jamet Service"
-                  className="h-auto w-[206px] object-contain"
-                />
+              <img
+                src="/branding/logonegro-color-transparent.png"
+                alt="Jamet Service"
+                className="h-auto w-[206px] object-contain transition-all duration-700 ease-in-out"
+              />
               </div>
               <div className="mt-3 flex justify-center">
                 <button className="h-12 w-12 rounded-2xl border border-dashed border-[#9fb2c8] text-[34px] leading-none text-[#96aac0]">+</button>
@@ -285,7 +285,7 @@ export function Sidebar() {
               <img
                 src="/branding/logonegro-isotipo.png"
                 alt="Jamet Service isotipo"
-                className="h-auto w-[46px] object-contain"
+                className="h-auto w-[46px] object-contain transition-all duration-700 ease-in-out"
               />
             </div>
           )}
