@@ -227,8 +227,12 @@ export function Sidebar() {
       >
         <div className="flex h-full w-full flex-col rounded-[26px] border border-gray-200 bg-[#f6f6f7] p-3 shadow-sm">
           <div className="flex items-start justify-between px-2 pt-1">
-            <div className="text-[54px] font-black leading-[0.84] tracking-tight text-[#2f3541]">
-              TH<span className="text-[#1f78c8]">+</span>
+            <div className="flex items-center pt-1">
+              <img
+                src="/branding/logonegro-color-transparent.png"
+                alt="Jamet Service"
+                className="h-auto w-[176px] object-contain"
+              />
             </div>
             <button
               type="button"
@@ -265,8 +269,12 @@ export function Sidebar() {
 
           {!collapsed ? (
             <div className="px-2 pt-1">
-              <div className="text-[72px] font-black leading-[0.84] tracking-tight text-[#2f3541]">
-                TH<span className="text-[#1f78c8]">+</span>
+              <div className="flex items-center pt-1">
+                <img
+                  src="/branding/logonegro-color-transparent.png"
+                  alt="Jamet Service"
+                  className="h-auto w-[206px] object-contain"
+                />
               </div>
               <div className="mt-3 flex justify-center">
                 <button className="h-12 w-12 rounded-2xl border border-dashed border-[#9fb2c8] text-[34px] leading-none text-[#96aac0]">+</button>
@@ -274,7 +282,11 @@ export function Sidebar() {
             </div>
           ) : (
             <div className="flex justify-center pt-1">
-              <div className="text-[34px] font-black text-[#2f3541]">TH<span className="text-[#1f78c8]">+</span></div>
+              <img
+                src="/branding/logonegro-isotipo.png"
+                alt="Jamet Service isotipo"
+                className="h-auto w-[46px] object-contain"
+              />
             </div>
           )}
 
