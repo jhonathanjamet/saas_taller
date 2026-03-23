@@ -2035,17 +2035,20 @@ export default function OrdenDetallePage() {
                 document.body,
               )
             : null}
-          <div className="mt-6 grid gap-4 lg:grid-cols-2">
-            <div className="rounded-2xl border border-gray-200 bg-white p-4 text-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-gray-500">Neto S/IVA</span>
-                <span className="font-semibold">{formatMoney(netoSinIva)}</span>
-              </div>
-              <div className="mt-2 flex items-center justify-between">
-                <span className="text-gray-500">Desc.Gral.</span>
+          <div className="mt-6 grid gap-4 lg:grid-cols-[2fr_1fr]">
+            <div className="rounded-2xl border border-gray-200 bg-white p-5 text-sm">
+              <div className="grid gap-3 md:grid-cols-3">
+                <div className="flex items-center gap-3">
+                  <span className="whitespace-nowrap text-[20px] text-gray-600">Neto S/IVA</span>
+                  <span className="h-px flex-1 border-b border-dotted border-gray-300" />
+                  <span className="whitespace-nowrap text-[20px] font-medium text-gray-700">{formatMoney(netoSinIva)}</span>
+                </div>
                 <div className="flex items-center gap-2">
+                  <span className="text-[18px] text-gray-500">ℹ</span>
+                  <span className="whitespace-nowrap text-[20px] text-gray-600">Desc.Gral.</span>
+                  <span className="h-px flex-1 border-b border-dotted border-gray-300" />
                   <input
-                    className="w-24 rounded-md border border-gray-200 px-2 py-1 text-right text-sm"
+                    className="w-24 rounded-md border border-gray-200 px-2 py-1 text-right text-[20px] text-gray-700"
                     type="number"
                     min="0"
                     value={generalDiscount}
@@ -2053,7 +2056,7 @@ export default function OrdenDetallePage() {
                     onChange={(e) => setGeneralDiscount(Number(e.target.value))}
                   />
                   <button
-                    className="rounded-full border border-gray-200 px-3 py-1 text-xs disabled:text-gray-400"
+                    className="flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-sand/60 text-lg text-gray-600 disabled:text-gray-300"
                     disabled={!canEditQuote}
                     onClick={async () => {
                       if (!order?.id || !token) return;
@@ -2065,24 +2068,29 @@ export default function OrdenDetallePage() {
                       });
                       setOrder(updated);
                     }}
+                    title="Guardar descuento general"
                   >
-                    Guardar
+                    ✎
                   </button>
                 </div>
-              </div>
-              <div className="mt-2 flex items-center justify-between">
-                <span className="text-gray-500">IVA</span>
-                <span className="font-semibold">{formatMoney(ivaAmount)}</span>
+                <div className="flex items-center gap-3">
+                  <span className="whitespace-nowrap text-[20px] text-gray-600">IVA</span>
+                  <span className="h-px flex-1 border-b border-dotted border-gray-300" />
+                  <span className="whitespace-nowrap text-[20px] font-medium text-gray-700">{formatMoney(ivaAmount)}</span>
+                </div>
               </div>
             </div>
-            <div className="rounded-2xl border border-gray-200 bg-white p-4 text-sm">
-              <div className="flex items-center justify-between">
-                <span className="text-gray-500">Subtotal C/IVA</span>
-                <span className="font-semibold">{formatMoney(totalWithIva)}</span>
+            <div className="rounded-2xl border border-gray-200 bg-white p-5 text-sm">
+              <div className="flex items-center gap-3">
+                <span className="whitespace-nowrap text-[20px] text-gray-600">Subtotal C/IVA</span>
+                <span className="h-px flex-1 border-b border-dotted border-gray-300" />
+                <span className="whitespace-nowrap text-[20px] font-medium text-gray-700">{formatMoney(totalWithIva)}</span>
               </div>
-              <div className="mt-4 flex items-center justify-between text-base font-semibold">
-                <span>Total</span>
-                <span>{formatMoney(totalWithIva)}</span>
+              <div className="mt-3 border-t border-gray-300 pt-3">
+                <div className="flex items-center justify-between text-[20px] font-semibold leading-none text-ink">
+                  <span>Total</span>
+                  <span>{formatMoney(totalWithIva)}</span>
+                </div>
               </div>
               <div className="mt-4 flex items-center justify-end gap-2">
                 <button
