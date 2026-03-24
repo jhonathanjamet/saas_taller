@@ -102,6 +102,17 @@ function extractAccessories(accessories: unknown) {
   return names.join(', ');
 }
 
+function splitFullName(fullName: string) {
+  const clean = fullName.trim().replace(/\s+/g, ' ');
+  if (!clean) return { firstName: '', lastName: '' };
+  const parts = clean.split(' ');
+  if (parts.length === 1) return { firstName: parts[0], lastName: '' };
+  return {
+    firstName: parts.slice(0, -1).join(' ').trim(),
+    lastName: parts[parts.length - 1].trim(),
+  };
+}
+
 async function main() {
   const filePath = process.argv[2];
   if (!filePath) {
@@ -118,7 +129,14 @@ async function main() {
     : (parsed?.datos || parsed?.data || []);
 
   const workOrders = await prisma.workOrder.findMany({
-    select: { id: true, orderNumber: true, tenantId: true, statusId: true, orderType: true },
+    select: {
+      id: true,
+      orderNumber: true,
+      tenantId: true,
+      statusId: true,
+      orderType: true,
+      customerId: true,
+    },
   });
   const localMap = new Map(
     workOrders.map((o) => [digitsOnly(o.orderNumber), o.id]),
@@ -175,6 +193,7 @@ async function main() {
   let updated = 0;
   let areaStatusUpdated = 0;
   let skippedNoOrder = 0;
+  let customersUpdated = 0;
 
   for (const entry of entries as UnknownRecord[]) {
     const source: UnknownRecord =
@@ -198,6 +217,10 @@ async function main() {
     const trabajo = getString(source.descripcion);
     const descripcionEstado = getString(source.descripcion_estado);
     const accesorios = extractAccessories(source.accesorios);
+    const clienteNombre = getString(source.cliente_nombre || source.customer_name || source.nombre_cliente);
+    const clienteDni = getString(source.cliente_dni || source.customer_dni || source.rut || source.dni);
+    const clienteTelefono = getString(source.cliente_telefono || source.customer_phone || source.telefono);
+    const clienteCorreo = getString(source.cliente_correo || source.customer_email || source.email);
 
     const area = areaFromText(
       source.area_nombre || source.area || source.orderType || source.tipo_area,
@@ -234,10 +257,61 @@ async function main() {
         areaStatusUpdated += 1;
       }
     }
+
+    // También sincronizamos datos del cliente para que se vean en la tarjeta de la orden.
+    if (localOrder.customerId) {
+      const customer = await prisma.customer.findUnique({
+        where: { id: localOrder.customerId },
+        select: {
+          id: true,
+          firstName: true,
+          lastName: true,
+          legalName: true,
+          taxId: true,
+          phone: true,
+          email: true,
+        },
+      });
+
+      if (customer) {
+        const customerUpdate: Record<string, unknown> = {};
+
+        if (clienteDni && clienteDni !== customer.taxId) {
+          customerUpdate.taxId = clienteDni;
+        }
+        if (clienteTelefono && clienteTelefono !== customer.phone) {
+          customerUpdate.phone = clienteTelefono;
+        }
+        if (clienteCorreo && clienteCorreo !== customer.email) {
+          customerUpdate.email = clienteCorreo;
+        }
+
+        if (clienteNombre) {
+          const { firstName, lastName } = splitFullName(clienteNombre);
+          if (firstName && firstName !== customer.firstName) {
+            customerUpdate.firstName = firstName;
+          }
+          if (lastName !== customer.lastName) {
+            customerUpdate.lastName = lastName || null;
+          }
+          if (customer.legalName && customer.legalName !== clienteNombre) {
+            customerUpdate.legalName = clienteNombre;
+          }
+        }
+
+        if (Object.keys(customerUpdate).length > 0) {
+          await prisma.customer.update({
+            where: { id: customer.id },
+            data: customerUpdate as any,
+          });
+          customersUpdated += 1;
+        }
+      }
+    }
   }
 
   console.log(
-    `Importación completada. Órdenes actualizadas: ${updated}. Área/estado ajustados: ${areaStatusUpdated}. Sin orden: ${skippedNoOrder}.`,
+    `Importación completada. Órdenes actualizadas: ${updated}. Área/estado ajustados: ${areaStatusUpdated}. Clientes actualizados: ${customersUpdated}. Sin orden: ${skippedNoOrder}.`,
   );
 }
 

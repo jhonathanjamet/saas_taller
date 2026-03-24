@@ -682,6 +682,26 @@ export default function OrdenDetallePage() {
     return fullName || customer.legalName || '—';
   }, [customer]);
 
+  const customerTypeLabel = useMemo(() => {
+    if (!customer) return 'Persona';
+    return customer.legalName ? 'Empresa' : 'Persona';
+  }, [customer]);
+
+  const customerTaxIdLabel = useMemo(() => {
+    const taxId = customer?.taxId?.trim();
+    return taxId || 'Sin documento';
+  }, [customer]);
+
+  const customerEmailLabel = useMemo(() => {
+    const email = customer?.email?.trim();
+    return email || 'No cargado';
+  }, [customer]);
+
+  const customerPhoneLabel = useMemo(() => {
+    const phone = customer?.phone?.trim();
+    return phone || 'No cargado';
+  }, [customer]);
+
   const assetLabel = useMemo(() => {
     if (!asset) return 'Sin equipo cargado';
     return [asset.brand, asset.model].filter(Boolean).join(', ') || 'Equipo sin modelo';
@@ -1381,17 +1401,21 @@ export default function OrdenDetallePage() {
               </div>
               <div className="flex-1">
                 <div className="inline-flex items-center rounded-full bg-sand px-3 py-1 text-xs text-gray-600">
-                  {customer?.taxId || 'Persona'}
+                  {customerTypeLabel} {customerTaxIdLabel}
                 </div>
                 <div className="mt-1.5 text-base font-semibold sm:mt-2 sm:text-lg">{customerName}</div>
-                <div className="mt-1 text-xs text-gray-500 sm:text-sm">
-                  {customer?.email || 'No cargado'}
+                <div className="mt-1 flex items-center gap-1 text-xs text-gray-500 sm:text-sm">
+                  <span>✉</span>
+                  <span>{customerEmailLabel}</span>
                 </div>
-                <div className="mt-1 text-xs text-gray-500 sm:text-sm">{customer?.phone || '—'}</div>
+                <div className="mt-1 flex items-center gap-1 text-xs text-gray-500 sm:text-sm">
+                  <span>☎</span>
+                  <span>{customerPhoneLabel}</span>
+                </div>
               </div>
               <div className="flex items-center gap-1.5 text-xs text-gray-500 sm:gap-2 sm:text-sm">
+                <button className="rounded-full border border-gray-200 px-2 py-1">🟢</button>
                 <button className="rounded-full border border-gray-200 px-2 py-1">👁</button>
-                <button className="rounded-full border border-gray-200 px-2 py-1">✎</button>
                 <button className="rounded-full border border-gray-200 px-2 py-1">⋮</button>
               </div>
             </div>
