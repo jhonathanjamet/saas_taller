@@ -109,7 +109,7 @@ const ADDITIONAL_TYPE_PREFIX = {
 } as const;
 
 function parseAdditionalDescription(raw?: string | null) {
-  const text = stripHiddenMeta(cleanItemTag(raw || '')).trim();
+  const text = stripVatMeta(stripHiddenMeta(cleanItemTag(raw || ''))).trim();
   if (text.startsWith(ADDITIONAL_TYPE_PREFIX.service)) {
     return { kind: 'service' as const, text: text.replace(ADDITIONAL_TYPE_PREFIX.service, '').trim() };
   }
@@ -140,6 +140,22 @@ function stripHiddenMeta(raw?: string | null) {
 function withHiddenMeta(raw: string, unitPrice: number, discountPercent: number) {
   const clean = stripHiddenMeta(raw);
   return `${clean} [[HIDDEN:u=${Number(unitPrice || 0)};d=${Number(discountPercent || 0)}]]`.trim();
+}
+
+function getVatMeta(raw?: string | null): { percent: number } | null {
+  const text = (raw || '').trim();
+  const match = text.match(/\[\[VAT:p=([0-9.]+)\]\]/i);
+  if (!match) return null;
+  return { percent: Number(match[1] || 0) };
+}
+
+function stripVatMeta(raw?: string | null) {
+  return (raw || '').replace(/\s*\[\[VAT:p=[0-9.]+\]\]\s*/gi, ' ').replace(/\s+/g, ' ').trim();
+}
+
+function withVatMeta(raw: string, percent: number) {
+  const clean = stripVatMeta(raw);
+  return `${clean} [[VAT:p=${Number(percent || 0)}]]`.trim();
 }
 
 const STATUS_LABELS = {
@@ -352,6 +368,9 @@ export default function OrdenDetallePage() {
     description: string;
   } | null>(null);
   const [generalDiscount, setGeneralDiscount] = useState(0);
+  const [showGeneralDiscountModal, setShowGeneralDiscountModal] = useState(false);
+  const [generalDiscountPercentInput, setGeneralDiscountPercentInput] = useState(0);
+  const [savingGeneralDiscount, setSavingGeneralDiscount] = useState(false);
   const [branch, setBranch] = useState<Branch | null>(null);
   const [showTaxModal, setShowTaxModal] = useState(false);
   const [taxRateInput, setTaxRateInput] = useState(19);
@@ -668,18 +687,18 @@ export default function OrdenDetallePage() {
     return [asset.brand, asset.model].filter(Boolean).join(', ') || 'Equipo sin modelo';
   }, [asset]);
 
+  const getItemVatPercent = (item: WorkOrderItem) => Math.max(0, Number(getVatMeta(item.description)?.percent || 0));
   const subtotal = items.reduce((acc, item) => acc + Number(item.totalPrice || 0), 0);
   const canEditQuote = !order?.quoteApproved;
-  const effectiveDiscount = Number(order?.discountAmount ?? generalDiscount ?? 0);
+  const effectiveDiscount = Number(generalDiscount ?? order?.discountAmount ?? 0);
   const netoSinIva = subtotal;
-  const taxable = Math.max(0, subtotal - effectiveDiscount);
-  const ivaAmount = Number.isFinite(Number(order?.taxAmount))
-    ? Number(order?.taxAmount)
-    : 0;
-  const totalWithIva = Number.isFinite(Number(order?.totalAmount))
-    ? Number(order?.totalAmount)
-    : taxable + ivaAmount;
-  const taxRateDisplay = taxable > 0 ? Math.round((ivaAmount / taxable) * 100) : 0;
+  const ivaAmount = items.reduce((acc, item) => {
+    const itemNet = Number(item.totalPrice || 0);
+    return acc + itemNet * (getItemVatPercent(item) / 100);
+  }, 0);
+  const subtotalConIva = netoSinIva + ivaAmount;
+  const totalWithIva = Math.max(0, subtotalConIva - effectiveDiscount);
+  const generalDiscountPercent = netoSinIva > 0 ? (effectiveDiscount / netoSinIva) * 100 : 0;
   const additionalTotalAmount = Math.round(
     Number(additionalNetAmount || 0) * (1 + Number(additionalIvaPercent || 0) / 100),
   );
@@ -760,6 +779,11 @@ export default function OrdenDetallePage() {
     } finally {
       setSavingTask(false);
     }
+  };
+
+  const openGeneralDiscountModal = () => {
+    setGeneralDiscountPercentInput(Number.isFinite(generalDiscountPercent) ? Number(generalDiscountPercent.toFixed(2)) : 0);
+    setShowGeneralDiscountModal(true);
   };
 
   const addNoteFromInput = async () => {
@@ -1019,7 +1043,7 @@ export default function OrdenDetallePage() {
     const parsed = parseAdditionalDescription(item.description);
     setAdditionalKind(parsed.kind);
     setAdditionalDescription(parsed.text || '');
-    setAdditionalIvaPercent(0);
+    setAdditionalIvaPercent(Math.max(0, Number(getVatMeta(item.description)?.percent || 0)));
     setAdditionalNetAmount(Number(item.unitPrice || 0));
     setAdditionalError(null);
     setShowAdditionalModal(true);
@@ -1257,11 +1281,11 @@ export default function OrdenDetallePage() {
                         ? 'Servicio'
                         : 'Adicional'}
                     </td>
-                    <td className="px-2 py-2">{item.description || '—'}</td>
+                    <td className="px-2 py-2">{parseAdditionalDescription(item.description).text || '—'}</td>
                     <td className="px-2 py-2 text-right">{formatMoney(item.unitPrice)}</td>
                     <td className="px-2 py-2 text-right">{item.quantity}</td>
                     <td className="px-2 py-2 text-right">{Number(item.discountPercent || 0).toFixed(0)}</td>
-                    <td className="px-2 py-2 text-right">{taxRateDisplay}</td>
+                    <td className="px-2 py-2 text-right">{Math.round(getItemVatPercent(item))}</td>
                     <td className="px-2 py-2 text-right">{formatMoney(item.totalPrice)}</td>
                   </tr>
                 ))}
@@ -1815,6 +1839,7 @@ export default function OrdenDetallePage() {
                     {items.map((item, index) => {
                       const isEditing = editingItemId === item.id;
                       const isItemHidden = Boolean(getHiddenMeta(item.description));
+                      const itemVatPercent = getItemVatPercent(item);
                       return (
                         <tr key={item.id} className="border-t border-gray-100">
                           <td className="px-3 py-2">
@@ -1917,7 +1942,7 @@ export default function OrdenDetallePage() {
                               Number(item.discountPercent || 0).toFixed(0)
                             )}
                           </td>
-                          <td className="px-3 py-2 text-right">{taxRateDisplay}</td>
+                          <td className="px-3 py-2 text-right">{Math.round(itemVatPercent)}</td>
                           <td className="px-3 py-2 text-right">{formatMoney(item.totalPrice || 0)}</td>
                           <td className="px-3 py-2 text-right">
                             {isEditing ? (
@@ -2046,32 +2071,15 @@ export default function OrdenDetallePage() {
                   <span className="h-px flex-1 border-b border-dotted border-gray-300" />
                   <span className="whitespace-nowrap text-base font-medium text-gray-700">{formatMoney(netoSinIva)}</span>
                 </div>
-                <div className="flex items-center gap-2">
+                <div className="flex min-w-0 items-center gap-2">
                   <span className="text-base text-gray-500">ℹ</span>
                   <span className="whitespace-nowrap text-base text-gray-600">Desc.Gral.</span>
                   <span className="h-px flex-1 border-b border-dotted border-gray-300" />
-                  <input
-                    className="w-24 rounded-md border border-gray-200 px-2 py-1 text-right text-base text-gray-700"
-                    type="number"
-                    min="0"
-                    value={generalDiscount}
-                    disabled={!canEditQuote}
-                    onChange={(e) => setGeneralDiscount(Number(e.target.value))}
-                  />
+                  <span className="whitespace-nowrap text-base font-medium text-gray-700">{formatMoney(effectiveDiscount)}</span>
                   <button
-                    className="flex h-10 w-10 items-center justify-center rounded-xl border border-gray-200 bg-sand/60 text-lg text-gray-600 disabled:text-gray-300"
-                    disabled={!canEditQuote}
-                    onClick={async () => {
-                      if (!order?.id || !token) return;
-                      if (!canEditQuote) return;
-                      const updated = await apiRequest<WorkOrder>(`/work-orders/${order.id}`, {
-                        method: 'PATCH',
-                        headers: { Authorization: `Bearer ${token}` },
-                        body: JSON.stringify({ discountAmount: generalDiscount }),
-                      });
-                      setOrder(updated);
-                    }}
-                    title="Guardar descuento general"
+                    className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg border border-gray-200 bg-sand/60 text-sm text-gray-600 hover:bg-sand"
+                    onClick={openGeneralDiscountModal}
+                    title="Editar descuento general"
                   >
                     ✎
                   </button>
@@ -2087,7 +2095,7 @@ export default function OrdenDetallePage() {
               <div className="flex items-center gap-3">
                 <span className="whitespace-nowrap text-base text-gray-600">Subtotal C/IVA</span>
                 <span className="h-px flex-1 border-b border-dotted border-gray-300" />
-                <span className="whitespace-nowrap text-base font-medium text-gray-700">{formatMoney(totalWithIva)}</span>
+                <span className="whitespace-nowrap text-base font-medium text-gray-700">{formatMoney(subtotalConIva)}</span>
               </div>
               <div className="mt-3 border-t border-gray-300 pt-3">
                 <div className="flex items-center justify-between text-base font-medium leading-none text-gray-700">
@@ -2330,7 +2338,8 @@ export default function OrdenDetallePage() {
                     setSavingAdditional(true);
                     try {
                       const prefix = ADDITIONAL_TYPE_PREFIX[additionalKind];
-                      const storedDescription = `${prefix} ${additionalDescription.trim()}`.trim();
+                      const descriptionBase = `${prefix} ${additionalDescription.trim()}`.trim();
+                      const storedDescription = withVatMeta(descriptionBase, additionalIvaPercent);
                       if (editingAdditionalItem) {
                         const updated = await apiRequest<WorkOrderItem>(
                           `/work-orders/${targetOrderId}/items/${editingAdditionalItem.id}`,
@@ -2340,7 +2349,7 @@ export default function OrdenDetallePage() {
                             body: JSON.stringify({
                               description: storedDescription,
                               quantity: Number(editingAdditionalItem.quantity || 1),
-                              unitPrice: additionalTotalAmount,
+                              unitPrice: additionalNetAmount,
                               discountPercent: 0,
                             }),
                           },
@@ -2355,7 +2364,7 @@ export default function OrdenDetallePage() {
                             description: storedDescription,
                             quantity: 1,
                             unitCost: additionalNetAmount,
-                            unitPrice: additionalTotalAmount,
+                            unitPrice: additionalNetAmount,
                             discountPercent: 0,
                           }),
                         });
@@ -2738,6 +2747,78 @@ export default function OrdenDetallePage() {
                   }}
                 >
                   {savingStatus ? 'Guardando...' : 'Guardar'}
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {showGeneralDiscountModal ? (
+          <div className="fixed inset-0 z-[81] flex items-center justify-center bg-black/40 px-4 py-8">
+            <div className="w-full max-w-2xl rounded-2xl bg-white p-5 shadow-2xl md:p-6">
+              <div className="flex items-center justify-between">
+                <h2 className="text-2xl font-medium text-ink">Descuento general</h2>
+                <button
+                  className="h-9 w-9 rounded-full border border-gray-200 text-2xl leading-none text-gray-400 hover:text-ink"
+                  onClick={() => setShowGeneralDiscountModal(false)}
+                >
+                  ×
+                </button>
+              </div>
+
+              <p className="mt-5 text-sm leading-relaxed text-gray-700 md:text-base">
+                <strong>¡Atención!</strong> El descuento general sera aplicado a todos los productos/servicios/adicionales de la orden, el mismo no se verá reflejado en el subtotal del producto, sin embargo aparece como Descuento general aplicado al importe neto de la orden sin IVA
+              </p>
+
+              <div className="mx-auto mt-6 max-w-lg rounded-2xl border border-gray-300 px-5 py-3">
+                <label className="text-sm leading-none text-gray-700 md:text-base">Descuento (%)</label>
+                <div className="mt-2 flex items-center justify-end gap-2 text-xl font-medium text-gray-700">
+                  <input
+                    className="w-28 rounded-xl border border-gray-200 px-3 py-2 text-right text-xl leading-none outline-none"
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    value={generalDiscountPercentInput}
+                    onChange={(e) => setGeneralDiscountPercentInput(Number(e.target.value || 0))}
+                  />
+                  <span>%</span>
+                </div>
+              </div>
+
+              <div className="mt-6 flex items-center justify-end gap-3">
+                <button
+                  className="rounded-2xl bg-sand px-5 py-2.5 text-base font-medium leading-none text-gray-700"
+                  onClick={() => setShowGeneralDiscountModal(false)}
+                >
+                  Cancelar
+                </button>
+                <button
+                  className="rounded-2xl bg-brand px-5 py-2.5 text-base font-semibold leading-none text-white disabled:bg-gray-300"
+                  disabled={savingGeneralDiscount}
+                  onClick={async () => {
+                    if (!order?.id || !token) return;
+                    setSavingGeneralDiscount(true);
+                    try {
+                      const boundedPercent = Math.min(100, Math.max(0, Number(generalDiscountPercentInput || 0)));
+                      const amount = Math.round(Math.max(0, netoSinIva) * (boundedPercent / 100));
+                      const updated = await apiRequest<WorkOrder>(`/work-orders/${order.id}`, {
+                        method: 'PATCH',
+                        headers: { Authorization: `Bearer ${token}` },
+                        body: JSON.stringify({ discountAmount: amount }),
+                      });
+                      setOrder((prev) => (prev ? { ...prev, ...updated, discountAmount: amount } : { ...updated, discountAmount: amount }));
+                      setGeneralDiscount(amount);
+                      setShowGeneralDiscountModal(false);
+                      setUiNotice({ type: 'success', message: 'Descuento general actualizado.' });
+                    } catch (err: any) {
+                      setUiNotice({ type: 'error', message: err?.message || 'No se pudo guardar el descuento general.' });
+                    } finally {
+                      setSavingGeneralDiscount(false);
+                    }
+                  }}
+                >
+                  💾 Guardar
                 </button>
               </div>
             </div>
