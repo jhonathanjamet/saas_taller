@@ -26,6 +26,7 @@ type WorkOrder = {
   createdAt?: string;
   updatedAt?: string;
   promisedAt?: string | null;
+  deliveredAt?: string | null;
 };
 
 type Branch = {
@@ -195,6 +196,10 @@ function normalizeText(value?: string | null) {
     .replace(/\s+/g, ' ')
     .toLowerCase()
     .trim();
+}
+
+function normalizeTaxId(value?: string | null) {
+  return normalizeText(value).replace(/\s+/g, '').replace(/[^a-z0-9]/g, '');
 }
 
 function normalizeArea(value?: string | null): 'entrada' | 'domicilio' | 'reparacion' | 'salida' {
@@ -408,6 +413,14 @@ export default function OrdenDetallePage() {
   const [savingDiagnostic, setSavingDiagnostic] = useState(false);
   const [uiNotice, setUiNotice] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
   const itemMenuRef = useRef<HTMLDivElement | null>(null);
+  const customerMenuRef = useRef<HTMLDivElement | null>(null);
+  const [showCustomerMenu, setShowCustomerMenu] = useState(false);
+  const [showWhatsappQuickMenu, setShowWhatsappQuickMenu] = useState(false);
+  const [showCustomerHistoryModal, setShowCustomerHistoryModal] = useState(false);
+  const [customerHistoryLoading, setCustomerHistoryLoading] = useState(false);
+  const [customerHistoryError, setCustomerHistoryError] = useState<string | null>(null);
+  const [customerOrderHistory, setCustomerOrderHistory] = useState<WorkOrder[]>([]);
+  const [customerHistoryAssetMap, setCustomerHistoryAssetMap] = useState<Record<string, Asset>>({});
 
   const token = typeof window !== 'undefined' ? localStorage.getItem('accessToken') : null;
   const currentOrderId = order?.id || (Array.isArray(params?.id) ? params.id[0] : params?.id) || '';
@@ -670,6 +683,33 @@ export default function OrdenDetallePage() {
       document.removeEventListener('keydown', handleEscape);
     };
   }, [openItemMenuId]);
+
+  useEffect(() => {
+    if (!showCustomerMenu && !showWhatsappQuickMenu) return;
+
+    const handleOutsideClick = (event: MouseEvent) => {
+      const target = event.target as HTMLElement | null;
+      if (!target) return;
+      if (target.closest('[data-customer-menu-trigger="true"]')) return;
+      if (target.closest('[data-whatsapp-menu-trigger="true"]')) return;
+      if (target.closest('[data-customer-menu-root="true"]')) return;
+      setShowCustomerMenu(false);
+      setShowWhatsappQuickMenu(false);
+    };
+
+    const handleEscape = (event: KeyboardEvent) => {
+      if (event.key !== 'Escape') return;
+      setShowCustomerMenu(false);
+      setShowWhatsappQuickMenu(false);
+    };
+
+    document.addEventListener('mousedown', handleOutsideClick);
+    document.addEventListener('keydown', handleEscape);
+    return () => {
+      document.removeEventListener('mousedown', handleOutsideClick);
+      document.removeEventListener('keydown', handleEscape);
+    };
+  }, [showCustomerMenu, showWhatsappQuickMenu]);
 
   useEffect(() => {
     if (!showStatusModal) return;
@@ -1007,6 +1047,73 @@ export default function OrdenDetallePage() {
     });
   };
 
+  const openCustomerHistoryModal = async () => {
+    if (!token || !customer?.id) {
+      setUiNotice({ type: 'error', message: 'No hay cliente cargado para consultar historial.' });
+      return;
+    }
+
+    setShowCustomerHistoryModal(true);
+    setCustomerHistoryLoading(true);
+    setCustomerHistoryError(null);
+    try {
+      const [activeOrders, historyOrders, allAssets, allCustomers] = await Promise.all([
+        apiRequest<WorkOrder[]>('/work-orders', {
+          headers: { Authorization: `Bearer ${token}` },
+        }),
+        apiRequest<WorkOrder[]>('/work-orders/history', {
+          headers: { Authorization: `Bearer ${token}` },
+        }).catch(() => []),
+        apiRequest<Asset[]>('/assets', {
+          headers: { Authorization: `Bearer ${token}` },
+        }).catch(() => []),
+        apiRequest<Customer[]>('/customers', {
+          headers: { Authorization: `Bearer ${token}` },
+        }).catch(() => []),
+      ]);
+
+      const targetTaxId = normalizeTaxId(customer.taxId);
+      const relatedCustomerIds =
+        targetTaxId && allCustomers.length > 0
+          ? new Set(
+              allCustomers
+                .filter((c) => normalizeTaxId(c.taxId) === targetTaxId)
+                .map((c) => c.id),
+            )
+          : new Set([customer.id]);
+
+      relatedCustomerIds.add(customer.id);
+
+      const mergedOrders = [...activeOrders, ...historyOrders].filter(
+        (workOrder, index, array) => array.findIndex((item) => item.id === workOrder.id) === index,
+      );
+
+      const byCustomer = mergedOrders
+        .filter((workOrder) => relatedCustomerIds.has(workOrder.customerId))
+        .sort((a, b) => {
+          const aN = Number(formatOrderNumber(a.orderNumber) || 0);
+          const bN = Number(formatOrderNumber(b.orderNumber) || 0);
+          if (Number.isFinite(aN) && Number.isFinite(bN) && aN !== bN) return bN - aN;
+          return (
+            new Date(b.updatedAt || b.createdAt || 0).getTime() -
+            new Date(a.updatedAt || a.createdAt || 0).getTime()
+          );
+        });
+
+      const assetMap: Record<string, Asset> = {};
+      allAssets.forEach((assetItem) => {
+        assetMap[assetItem.id] = assetItem;
+      });
+
+      setCustomerHistoryAssetMap(assetMap);
+      setCustomerOrderHistory(byCustomer);
+    } catch (err: any) {
+      setCustomerHistoryError(err?.message || 'No se pudo cargar el historial del cliente.');
+    } finally {
+      setCustomerHistoryLoading(false);
+    }
+  };
+
   const openMove = async () => {
     if (order) {
       setStatusAreaSelection(normalizeArea(order.orderType || status?.name || 'entrada'));
@@ -1130,6 +1237,48 @@ export default function OrdenDetallePage() {
     } catch {
       setUiNotice({ type: 'error', message: `No se pudo copiar automáticamente. ${url}` });
     }
+  };
+
+  const openCustomerWhatsapp = () => {
+    const toPhone = (customer?.phone || '').replace(/[^\d]/g, '');
+    if (!toPhone) {
+      setUiNotice({ type: 'error', message: 'Este cliente no tiene teléfono cargado.' });
+      return;
+    }
+    const url = getPublicOrderUrl();
+    const customerNameSafe = customerName === '—' ? 'cliente' : customerName;
+    const text = encodeURIComponent(
+      `Hola ${customerNameSafe}, aquí puedes revisar tu orden digital: ${url}`,
+    );
+    window.open(`https://wa.me/${toPhone}?text=${text}`, '_blank');
+  };
+
+  const openCustomerWhatsappWithMode = (mode: 'info' | 'status') => {
+    const toPhone = (customer?.phone || '').replace(/[^\d]/g, '');
+    if (!toPhone) {
+      setUiNotice({ type: 'error', message: 'Este cliente no tiene teléfono cargado.' });
+      return;
+    }
+
+    const orderNumberLabel = formatOrderNumber(order?.orderNumber);
+    const customerNameSafe = customerName === '—' ? 'cliente' : customerName;
+    const orderUrl = getPublicOrderUrl();
+    const baseMessage =
+      mode === 'status'
+        ? `Hola ${customerNameSafe}, tu orden #${orderNumberLabel} está en ${areaLabel} / ${statusLabel}. Revisa aquí: ${orderUrl}`
+        : `Hola ${customerNameSafe}, te compartimos la información de tu orden #${orderNumberLabel}. Puedes verla aquí: ${orderUrl}`;
+
+    window.open(`https://wa.me/${toPhone}?text=${encodeURIComponent(baseMessage)}`, '_blank');
+  };
+
+  const openCustomerWhatsappCompose = () => {
+    const orderUrl = getPublicOrderUrl();
+    const customerNameSafe = customerName === '—' ? 'cliente' : customerName;
+    setSendByEmail(false);
+    setSendBySms(false);
+    setSendByWhatsapp(true);
+    setDigitalMessage(`Hola ${customerNameSafe}, aquí puedes revisar tu orden digital: ${orderUrl}`);
+    setShowDigitalOrderModal(true);
   };
 
   const sendDigitalOrder = async () => {
@@ -1413,10 +1562,122 @@ export default function OrdenDetallePage() {
                   <span>{customerPhoneLabel}</span>
                 </div>
               </div>
-              <div className="flex items-center gap-1.5 text-xs text-gray-500 sm:gap-2 sm:text-sm">
-                <button className="rounded-full border border-gray-200 px-2 py-1">🟢</button>
-                <button className="rounded-full border border-gray-200 px-2 py-1">👁</button>
-                <button className="rounded-full border border-gray-200 px-2 py-1">⋮</button>
+              <div
+                ref={customerMenuRef}
+                data-customer-menu-root="true"
+                className="relative flex items-center gap-1.5 text-xs text-gray-500 sm:gap-2 sm:text-sm"
+              >
+                <button
+                  data-whatsapp-menu-trigger="true"
+                  className="rounded-full border border-gray-200 px-2 py-1 hover:bg-sand"
+                  onClick={() => {
+                    setShowWhatsappQuickMenu((prev) => !prev);
+                    setShowCustomerMenu(false);
+                  }}
+                  title="Enviar por WhatsApp"
+                >
+                  💬
+                </button>
+                <button
+                  className="rounded-full border border-gray-200 px-2 py-1 hover:bg-sand"
+                  onClick={() => {
+                    void openCustomerHistoryModal();
+                  }}
+                  title="Ver historial del cliente"
+                >
+                  👁
+                </button>
+                <button
+                  data-customer-menu-trigger="true"
+                  className="rounded-full border border-gray-200 px-2 py-1 hover:bg-sand"
+                  onClick={() => setShowCustomerMenu((prev) => !prev)}
+                  title="Más acciones"
+                >
+                  ⋮
+                </button>
+                {showWhatsappQuickMenu ? (
+                  <div className="absolute right-14 top-full z-50 mt-2 min-w-[280px] rounded-2xl border border-gray-200 bg-white p-2 shadow-lg">
+                    <button
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs hover:bg-sand sm:text-sm"
+                      onClick={() => {
+                        setShowWhatsappQuickMenu(false);
+                        openCustomerWhatsappWithMode('info');
+                      }}
+                    >
+                      <span>💬</span>
+                      <span>Información de la orden</span>
+                    </button>
+                    <button
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs hover:bg-sand sm:text-sm"
+                      onClick={() => {
+                        setShowWhatsappQuickMenu(false);
+                        openCustomerWhatsappWithMode('status');
+                      }}
+                    >
+                      <span>💬</span>
+                      <span>Área y estado de la orden</span>
+                    </button>
+                    <button
+                      className="flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-xs hover:bg-sand sm:text-sm"
+                      onClick={() => {
+                        setShowWhatsappQuickMenu(false);
+                        openCustomerWhatsappCompose();
+                      }}
+                    >
+                      <span>✎</span>
+                      <span>Redactar</span>
+                    </button>
+                  </div>
+                ) : null}
+                {showCustomerMenu ? (
+                  <div className="absolute right-0 top-full z-50 mt-2 w-52 rounded-xl border border-gray-200 bg-white py-1.5 shadow-lg">
+                    <button
+                      className="block w-full px-3 py-2 text-left text-xs hover:bg-sand sm:text-sm"
+                      onClick={() => {
+                        setShowCustomerMenu(false);
+                        openPublicOrderLink();
+                      }}
+                    >
+                      Orden digital
+                    </button>
+                    <button
+                      className="block w-full px-3 py-2 text-left text-xs hover:bg-sand sm:text-sm"
+                      onClick={() => {
+                        setShowCustomerMenu(false);
+                        void copyDigitalOrderUrl();
+                      }}
+                    >
+                      Copiar vínculo
+                    </button>
+                    <button
+                      className="block w-full px-3 py-2 text-left text-xs hover:bg-sand sm:text-sm"
+                      onClick={() => {
+                        setShowCustomerMenu(false);
+                        openCustomerWhatsapp();
+                      }}
+                    >
+                      Enviar por WhatsApp
+                    </button>
+                    <button
+                      className="block w-full px-3 py-2 text-left text-xs hover:bg-sand sm:text-sm"
+                      onClick={() => {
+                        setShowCustomerMenu(false);
+                        void openCustomerHistoryModal();
+                      }}
+                    >
+                      Historial cliente
+                    </button>
+                    <button
+                      className="block w-full px-3 py-2 text-left text-xs hover:bg-sand sm:text-sm"
+                      onClick={() => {
+                        setShowCustomerMenu(false);
+                        previewDigitalOrder();
+                      }}
+                    >
+                      Ver orden pública
+                    </button>
+                  </div>
+                ) : null}
               </div>
             </div>
           </div>
@@ -2243,6 +2504,142 @@ export default function OrdenDetallePage() {
                 >
                   ✉ Enviar
                 </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
+
+        {showCustomerHistoryModal ? (
+          <div className="fixed inset-0 z-[88] flex items-start justify-center bg-black/45 px-3 py-4 sm:px-4 sm:py-6">
+            <div className="max-h-[94vh] w-full max-w-6xl overflow-y-auto rounded-2xl border border-gray-200 bg-white p-4 shadow-2xl sm:p-5">
+              <div className="mb-3 flex items-center justify-between">
+                <h2 className="text-xl font-semibold text-ink sm:text-2xl">Buscador</h2>
+                <div className="flex items-center gap-2">
+                  <button
+                    className="h-10 w-10 rounded-xl border border-gray-200 bg-sand text-base text-gray-700 hover:bg-gray-100"
+                    onClick={() => setShowCustomerHistoryModal(false)}
+                  >
+                    ←
+                  </button>
+                  <button
+                    className="h-10 w-10 rounded-xl border border-gray-200 bg-sand text-base text-gray-700 hover:bg-gray-100"
+                    onClick={() => setUiNotice({ type: 'success', message: 'Módulo de ayuda en construcción.' })}
+                  >
+                    ?
+                  </button>
+                  <button
+                    className="h-10 w-10 rounded-xl border border-gray-200 bg-sand text-base text-gray-700 hover:bg-gray-100"
+                    onClick={() => setShowCustomerHistoryModal(false)}
+                  >
+                    ✕
+                  </button>
+                </div>
+              </div>
+
+              <div className="rounded-2xl border border-gray-200 bg-white p-3">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-20 w-20 items-center justify-center rounded-xl bg-sand text-3xl text-gray-400">👤</div>
+                  <div className="flex-1">
+                    <div className="inline-flex items-center rounded-full bg-sand px-2 py-0.5 text-xs text-gray-600">
+                      {customerTypeLabel} {customerTaxIdLabel}
+                    </div>
+                    <div className="mt-1 text-xl font-medium text-ink sm:text-2xl">{customerName}</div>
+                    <div className="mt-1 flex items-center gap-2 text-sm text-gray-600">
+                      <span>✉</span>
+                      <span>{customerEmailLabel}</span>
+                    </div>
+                    <div className="mt-1 flex items-center gap-2 text-sm text-gray-600">
+                      <span>☎</span>
+                      <span>{customerPhoneLabel}</span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <h3 className="mt-5 text-2xl font-semibold text-ink">Órdenes</h3>
+
+              <div className="mt-4 overflow-x-auto">
+                <table className="min-w-full border-separate border-spacing-y-2 text-left text-sm">
+                  <thead>
+                    <tr className="text-xs uppercase tracking-wide text-gray-500 sm:text-sm">
+                      <th className="px-3 py-2"></th>
+                      <th className="px-3 py-2">N°</th>
+                      <th className="px-3 py-2">N° Serie</th>
+                      <th className="px-3 py-2">Equipo</th>
+                      <th className="px-3 py-2">Descripción</th>
+                      <th className="px-3 py-2">Precio</th>
+                      <th className="px-3 py-2 text-right"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {customerHistoryLoading ? (
+                      <tr>
+                        <td colSpan={7} className="rounded-xl border border-dashed border-gray-200 bg-white px-3 py-6 text-center text-gray-500">
+                          Cargando historial...
+                        </td>
+                      </tr>
+                    ) : customerHistoryError ? (
+                      <tr>
+                        <td colSpan={7} className="rounded-xl border border-red-200 bg-red-50 px-3 py-4 text-center text-red-600">
+                          {customerHistoryError}
+                        </td>
+                      </tr>
+                    ) : customerOrderHistory.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="rounded-xl border border-dashed border-gray-200 bg-white px-3 py-6 text-center text-gray-500">
+                          No hay órdenes para este cliente todavía.
+                        </td>
+                      </tr>
+                    ) : (
+                      customerOrderHistory.map((historyOrder) => {
+                        const historyAsset = historyOrder.assetId ? customerHistoryAssetMap[historyOrder.assetId] : undefined;
+                        const equipo = historyAsset ? `${historyAsset.brand || 'Genérica'} ${historyAsset.model || ''}`.trim() : 'Sin equipo';
+                        const isCurrentOrder = historyOrder.id === order?.id;
+                        const isDelivered = Boolean(historyOrder.deliveredAt);
+                        return (
+                          <tr key={historyOrder.id} className="rounded-2xl bg-[#f4f4f4] text-sm text-gray-700 sm:text-base">
+                            <td className="rounded-l-2xl px-3 py-2.5 text-lg">{isDelivered ? '✓' : isCurrentOrder ? '🔧' : '•'}</td>
+                            <td className="px-3 py-2.5 font-medium">{formatOrderNumber(historyOrder.orderNumber)}</td>
+                            <td className="px-3 py-2.5">{historyAsset?.serialNumber || 'GENÉRICO'}</td>
+                            <td className="px-3 py-2.5">{equipo}</td>
+                            <td className="px-3 py-2.5">{historyOrder.initialDiagnosis || 'Sin descripción'}</td>
+                            <td className="px-3 py-2.5">{formatMoney(historyOrder.totalAmount)}</td>
+                            <td className="rounded-r-2xl px-3 py-2.5">
+                              <div className="flex items-center justify-end gap-2">
+                                <button
+                                  className="h-9 w-9 rounded-xl bg-white text-sm hover:bg-sand"
+                                  title="Vista previa pública"
+                                  onClick={() =>
+                                    window.open(`/consulta/orden/${encodeURIComponent(historyOrder.orderNumber)}`, '_blank')
+                                  }
+                                >
+                                  👁
+                                </button>
+                                <button
+                                  className="h-9 w-9 rounded-xl bg-white text-sm hover:bg-sand"
+                                  title="Imprimir"
+                                  onClick={() => window.open(`/ordenes/${historyOrder.id}?print=1`, '_blank')}
+                                >
+                                  🖨
+                                </button>
+                                <button
+                                  className="h-9 w-9 rounded-xl bg-[#1479d6] text-base text-white hover:bg-[#0f67b9]"
+                                  title="Abrir orden"
+                                  onClick={() => {
+                                    setShowCustomerHistoryModal(false);
+                                    router.push(`/ordenes/${historyOrder.id}`);
+                                  }}
+                                >
+                                  →
+                                </button>
+                              </div>
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
               </div>
             </div>
           </div>
